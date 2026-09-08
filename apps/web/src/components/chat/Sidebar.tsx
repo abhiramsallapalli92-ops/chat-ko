@@ -19,6 +19,7 @@ import { firestoreDB } from '../../lib/firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { UserProfile } from '@chat/shared-types';
 import { PullToRefresh } from '../common/PullToRefresh';
+import { playTapSound, playPullRefreshSound } from '../../lib/soundEffects';
 
 interface SidebarProps {
   onOpenSettings: () => void;
@@ -129,9 +130,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
             <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-black rounded-full shadow" />
           </div>
           <div>
-            <h2 className="font-semibold text-sm text-[#F2F2F7] line-clamp-1">{user?.name}</h2>
-            <div className="flex items-center gap-1 text-[11px] text-[#8E8E93] font-medium tracking-tight">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#0A84FF]" />
+            <h2 className="font-semibold text-sm text-[#f0f2f7] line-clamp-1">{user?.name}</h2>
+            <div className="flex items-center gap-1 text-[11px] text-[#8a8ea0] font-medium tracking-tight">
+              <ShieldCheck className="w-3.5 h-3.5 text-[#4f8ef7]" />
               <span>E2EE Active</span>
             </div>
           </div>
@@ -139,15 +140,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setShowNewChatModal(true)}
-            className="w-10 h-10 flex items-center justify-center hover:bg-white/10 active:scale-95 rounded-full text-[#0A84FF] transition-all"
+            onClick={() => { playTapSound(); setShowNewChatModal(true); }}
+            className="w-10 h-10 flex items-center justify-center hover:bg-white/10 active:scale-95 rounded-full text-[#4f8ef7] transition-all"
             title="New Chat / Search Users"
           >
             <MessageSquarePlus className="w-5 h-5" />
           </button>
           <button
-            onClick={onOpenSettings}
-            className="w-10 h-10 flex items-center justify-center hover:bg-white/10 active:scale-95 rounded-full text-[#8E8E93] hover:text-white transition-all"
+            onClick={() => { playTapSound(); onOpenSettings(); }}
+            className="w-10 h-10 flex items-center justify-center hover:bg-white/10 active:scale-95 rounded-full text-[#8a8ea0] hover:text-white transition-all"
             title="Settings"
           >
             <Settings className="w-5 h-5" />
@@ -181,27 +182,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
       <div className="px-3 pb-2">
         <div className="flex items-center bg-white/[0.05] p-0.5 rounded-[9px] border border-white/10">
           <button
-            onClick={() => setActiveTab('CHATS')}
+            onClick={() => { playTapSound(); setActiveTab('CHATS'); }}
             className={`flex-1 py-1.5 text-xs font-medium rounded-[7px] transition-all ${
               activeTab === 'CHATS'
                 ? 'glass-surface text-white shadow-sm font-semibold border border-white/15'
-                : 'text-[#8E8E93] hover:text-white'
+                : 'text-[#8a8ea0] hover:text-white'
             }`}
           >
             Chats ({conversations.length})
           </button>
           <button
-            onClick={() => setActiveTab('REQUESTS')}
+            onClick={() => { playTapSound(); setActiveTab('REQUESTS'); }}
             className={`flex-1 py-1.5 text-xs font-medium rounded-[7px] transition-all relative flex items-center justify-center gap-1.5 ${
               activeTab === 'REQUESTS'
                 ? 'glass-surface text-white shadow-sm font-semibold border border-white/15'
-                : 'text-[#8E8E93] hover:text-white'
+                : 'text-[#8a8ea0] hover:text-white'
             }`}
           >
             <Inbox className="w-3.5 h-3.5" />
             <span>Requests</span>
             {pendingRequests.length > 0 && (
-              <span className="w-4 h-4 bg-[#0A84FF] text-white rounded-full text-[10px] font-bold flex items-center justify-center">
+              <span className="unread-badge">
                 {pendingRequests.length}
               </span>
             )}
@@ -212,6 +213,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
       {/* Main Sidebar Content Area with iOS Pull-To-Refresh */}
       <PullToRefresh
         onRefresh={async () => {
+          playPullRefreshSound();
           await fetchConversations();
         }}
         pullingText="Pull to refresh chats"
@@ -346,7 +348,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
               return (
                 <div
                   key={conv.id}
-                  onClick={() => selectConversation(conv.id)}
+                  onClick={() => { playTapSound(); selectConversation(conv.id); }}
                   className={`p-3.5 flex items-center gap-3 cursor-pointer transition-all ios-press ${
                     isActive
                       ? 'conv-active'
@@ -364,28 +366,28 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <h3 className="text-sm font-semibold text-[#F2F2F7] truncate">
-                        {displayName}
-                      </h3>
-                      <span className="text-[11px] text-[#8E8E93] flex-shrink-0 font-normal">
-                        {conv.updatedAt ? new Date(conv.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs text-[#8E8E93]">
-                      <p className="truncate pr-2 font-normal text-[#8E8E93]">
-                        {isBlockedByThem
-                          ? 'Communications restricted'
-                          : isBlockedByMe
-                          ? 'User blocked'
-                          : lastMsg
-                          ? (lastMsg as any).decryptedText || '🔒 Encrypted message'
-                          : 'Tap to start encrypted chat'}
-                      </p>
-                      <Lock className="w-3 h-3 text-[#8E8E93] flex-shrink-0" />
-                    </div>
-                  </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-0.5">
+                  <h3 className="text-sm font-semibold text-[#f0f2f7] truncate">
+                    {displayName}
+                  </h3>
+                  <span className="text-[11px] text-[#8a8ea0] flex-shrink-0 font-normal">
+                    {conv.updatedAt ? new Date(conv.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-[#8a8ea0]">
+                  <p className="truncate pr-2 font-normal text-[#8a8ea0]">
+                    {isBlockedByThem
+                      ? 'Communications restricted'
+                      : isBlockedByMe
+                      ? 'User blocked'
+                      : lastMsg
+                      ? (lastMsg as any).decryptedText || '🔒 Encrypted message'
+                      : 'Tap to start encrypted chat'}
+                  </p>
+                  <Lock className="w-3 h-3 text-[#4f8ef7] opacity-50 flex-shrink-0" />
+                </div>
+              </div>
                 </div>
               );
             })

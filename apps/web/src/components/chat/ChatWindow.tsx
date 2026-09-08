@@ -26,6 +26,7 @@ import { MessageInput } from './MessageInput';
 import { CallModal } from './CallModal';
 import { LocalMessageRecord } from '../../db/indexeddb';
 import { PullToRefresh } from '../common/PullToRefresh';
+import { playTapSound, playModalOpenSound, playModalCloseSound, playPullRefreshSound } from '../../lib/soundEffects';
 
 interface ChatWindowProps {
   onBack?: () => void;
@@ -266,19 +267,19 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
   if (!activeConv || !otherUser) {
     return (
       <div className="flex-1 bg-transparent hidden md:flex flex-col items-center justify-center p-8 text-center relative overflow-hidden">
-        <div className="glass-card border border-white/20 rounded-3xl p-8 max-w-md flex flex-col items-center shadow-2xl relative">
-          <div className="w-20 h-20 glass-surface border border-white/20 rounded-2xl flex items-center justify-center text-[#0A84FF] mb-5 shadow-lg">
+        <div className="glass-card border border-white/10 rounded-3xl p-8 max-w-md flex flex-col items-center shadow-2xl relative fade-scale-in">
+          <div className="w-20 h-20 glass-surface border border-white/15 rounded-2xl flex items-center justify-center text-[#4f8ef7] mb-5 shadow-lg">
             <LockKeyhole className="w-10 h-10" />
           </div>
           <h2 className="text-2xl font-light text-white mb-1 tracking-tight">
-            Chat-Ko <span className="font-semibold text-[#0A84FF]">Glass</span>
+            Chat-Ko <span className="font-semibold text-[#4f8ef7]">Glass</span>
           </h2>
-          <p className="text-xs text-[#8E8E93] max-w-xs mb-5 leading-relaxed">
+          <p className="text-xs text-[#8a8ea0] max-w-xs mb-5 leading-relaxed">
             Select a conversation or search users to start real-time end-to-end encrypted messaging.
           </p>
-          <div className="flex items-center gap-2 text-[11px] text-[#8E8E93] bg-white/5 px-4 py-2 rounded-full border border-white/10 font-mono">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#0A84FF]" />
-            <span>AES-256-GCM • Zero-Knowledge</span>
+          <div className="flex items-center gap-2 text-[11px] text-[#8a8ea0] bg-white/5 px-4 py-2 rounded-full border border-white/10 font-mono">
+            <ShieldCheck className="w-3.5 h-3.5 text-[#4f8ef7]" />
+            <span>X3DH + Double Ratchet • Zero-Knowledge</span>
           </div>
         </div>
       </div>
@@ -367,11 +368,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
           />
           <div className="min-w-0">
             <h2 className="font-semibold text-sm text-[#F2F2F7] line-clamp-1">{headerName}</h2>
-            <div className="text-[11px] text-[#8E8E93] truncate">
+            <div className="text-[11px] text-[#8a8ea0] truncate">
               {isBlocked ? (
                 <span>offline</span>
               ) : isTyping ? (
-                <span className="text-[#0A84FF] font-medium animate-pulse">typing...</span>
+                <span className="text-[#4f8ef7] font-medium">typing...</span>
               ) : presence?.status === 'ONLINE' || otherUser.status === 'ONLINE' ? (
                 <span className="text-emerald-400 font-medium">online</span>
               ) : (
@@ -388,7 +389,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
             className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border ${
               whisperTimer > 0
                 ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-sm animate-pulse'
-                : 'bg-white/5 text-zinc-400 border-white/10 hover:text-white'
+                : 'bg-white/5 text-[#8a8ea0] border-white/10 hover:text-white'
             }`}
             title="Toggle Whisper Disappearing Mode"
           >
@@ -450,12 +451,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
       </div>
 
       {/* Security Info Banner */}
-      <div className="py-2 px-4 bg-white/5 border-b border-white/10 text-center text-xs text-zinc-300 flex items-center justify-center gap-1.5 backdrop-blur-sm shadow-inner">
-        <Lock className="w-3.5 h-3.5 flex-shrink-0 text-zinc-300" />
+      <div className="py-1.5 px-4 bg-white/[0.03] border-b border-white/[0.07] text-center text-[11px] text-[#8a8ea0] flex items-center justify-center gap-1.5">
+        <Lock className="w-3 h-3 flex-shrink-0 text-[#4f8ef7]" />
         <span>
           {whisperTimer > 0
-            ? `👻 Whisper Mode Active: Messages self-destruct after ${whisperTimer}s`
-            : 'End-to-End Encrypted: Only participants in this chat can read messages'}
+            ? `👻 Whisper Mode: Messages self-destruct after ${whisperTimer}s`
+            : 'Double Ratchet E2EE · Only you and this contact can read messages'}
         </span>
       </div>
 
@@ -533,26 +534,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
               )}
 
               <div
-                className={`max-w-[85%] sm:max-w-[72%] p-3 shadow-sm relative transition-all ${
+                className={`max-w-[85%] sm:max-w-[72%] p-3 shadow-md relative transition-all ${
                   msg.isDeleted
-                    ? 'bg-white/5 border border-white/10 text-[#8E8E93] italic rounded-[18px]'
+                    ? 'bg-white/5 border border-white/10 text-[#8a8ea0] italic rounded-[18px]'
                     : isSent
-                    ? 'text-white rounded-[18px] rounded-br-[4px]'
-                    : 'text-[#F2F2F7] rounded-[18px] rounded-bl-[4px]'
+                    ? 'bubble-sent'
+                    : 'bubble-received'
                 }`}
-                style={msg.isDeleted ? {} : isSent ? {
-                  background: 'linear-gradient(145deg, rgba(10,132,255,0.35) 0%, rgba(0,112,223,0.25) 100%)',
-                  backdropFilter: 'blur(24px) saturate(180%)',
-                  WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-                  border: '1px solid rgba(10,132,255,0.40)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.20), 0 4px 20px rgba(10,132,255,0.20)',
-                } : {
-                  background: 'linear-gradient(145deg, rgba(42,45,56,0.45) 0%, rgba(22,24,32,0.55) 100%)',
-                  backdropFilter: 'blur(28px) saturate(200%)',
-                  WebkitBackdropFilter: 'blur(28px) saturate(200%)',
-                  border: '1px solid rgba(255,255,255,0.12)',
-                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18), 0 4px 16px rgba(0,0,0,0.30)',
-                }}
               >
                 {/* Quoted Reply */}
                 {msg.replyToId && !msg.isDeleted && (
@@ -610,10 +598,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
 
         {isTyping && (
           <div className="flex justify-start">
-            <div className="bg-[#1C1C1E] border border-white/5 text-[#8E8E93] px-4 py-2 rounded-[18px] text-xs flex items-center gap-1.5 shadow-sm">
-              <span className="w-2 h-2 bg-[#8E8E93] rounded-full animate-bounce" />
-              <span className="w-2 h-2 bg-[#8E8E93] rounded-full animate-bounce [animation-delay:0.2s]" />
-              <span className="w-2 h-2 bg-[#8E8E93] rounded-full animate-bounce [animation-delay:0.4s]" />
+            <div className="bubble-received px-4 py-3 flex items-center gap-1.5">
+              <span className="w-2 h-2 bg-[#8a8ea0] rounded-full typing-dot-1" />
+              <span className="w-2 h-2 bg-[#8a8ea0] rounded-full typing-dot-2" />
+              <span className="w-2 h-2 bg-[#8a8ea0] rounded-full typing-dot-3" />
             </div>
           </div>
         )}

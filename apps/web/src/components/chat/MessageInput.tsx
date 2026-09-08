@@ -3,6 +3,7 @@ import { Send, Smile, Paperclip, X, Mic, Image as ImageIcon, Trash2, Video } fro
 import { LocalMessageRecord } from '../../db/indexeddb';
 import { compressImage } from '../../lib/imageCompressor';
 import { VideoNoteRecorderModal, FrameStyle } from './VideoNoteRecorderModal';
+import { playTapSound } from '../../lib/soundEffects';
 
 interface MessageInputProps {
   onSend: (text: string, messageType?: 'TEXT' | 'IMAGE' | 'VOICE' | 'VIDEO_NOTE', mediaUrl?: string, frameStyle?: string) => void;
@@ -157,6 +158,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   const handleSend = (e?: React.SyntheticEvent) => {
     if (e) e.preventDefault();
     lastSendTimeRef.current = Date.now();
+    playTapSound();
 
     if (selectedImage) {
       onSend(text.trim() || '📷 Photo', 'IMAGE', selectedImage);

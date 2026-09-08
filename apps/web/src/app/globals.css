@@ -2,18 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Google Fonts ────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 @layer base {
   * {
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    box-sizing: border-box;
   }
-  
+
   html, body {
     height: 100%;
     height: 100dvh;
     overscroll-behavior-y: none;
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    @apply bg-black text-[#F2F2F7] antialiased overflow-hidden select-none;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    @apply bg-[#0b0e14] text-[#f0f2f7] antialiased overflow-hidden select-none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Smooth keyboard height transition on the root element */
+  html {
+    transition: var(--vvp-transition, none);
   }
 
   /* Prevent auto-zoom on mobile iOS Safari inputs (< 768px) */
@@ -28,126 +39,285 @@
   }
 }
 
-.safe-top {
-  padding-top: env(safe-area-inset-top, 0px);
+/* ── Safe area helpers ───────────────────────────────────────────────────────── */
+.safe-top    { padding-top:    env(safe-area-inset-top, 0px); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* ── Keyboard-aware container transition ─────────────────────────────────────── */
+/* Apply this class to any container whose height is driven by --visual-viewport-height */
+.viewport-height-transition {
+  transition: height 0.25s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.safe-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-}
+/* ══════════════════════════════════════════════════════════════════════════════
+   GLASSMORPHISM DESIGN SYSTEM
+   Background: #0b0e14  Accent: #4f8ef7 (refined blue)  Secondary: #7c6af7
+   ══════════════════════════════════════════════════════════════════════════════ */
 
-/* Authentic Refractive Dark Glassmorphism */
+/* Main glass surface — used for app panels */
 .glass-surface {
-  background: linear-gradient(135deg, rgba(35, 38, 48, 0.45) 0%, rgba(18, 19, 25, 0.65) 100%);
-  backdrop-filter: blur(32px) saturate(210%) brightness(110%);
-  -webkit-backdrop-filter: blur(32px) saturate(210%) brightness(110%);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(
+    135deg,
+    rgba(38, 43, 58, 0.52) 0%,
+    rgba(18, 20, 30, 0.72) 100%
+  );
+  backdrop-filter: blur(32px) saturate(200%) brightness(112%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%) brightness(112%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   box-shadow:
-    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.06),
-    0 20px 50px -10px rgba(0, 0, 0, 0.7);
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.04),
+    0 24px 60px -12px rgba(0, 0, 0, 0.75);
 }
 
+/* Modal / auth panel */
 .glass-panel {
-  background: linear-gradient(145deg, rgba(28, 30, 38, 0.55) 0%, rgba(14, 15, 20, 0.72) 100%);
-  backdrop-filter: blur(36px) saturate(220%) brightness(108%);
-  -webkit-backdrop-filter: blur(36px) saturate(220%) brightness(108%);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow:
-    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.25),
-    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.05),
-    0 24px 60px -12px rgba(0, 0, 0, 0.8);
-}
-
-.glass-card {
-  background: linear-gradient(135deg, rgba(42, 45, 56, 0.45) 0%, rgba(22, 24, 32, 0.58) 100%);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  background: linear-gradient(
+    145deg,
+    rgba(32, 36, 50, 0.60) 0%,
+    rgba(14, 16, 24, 0.80) 100%
+  );
+  backdrop-filter: blur(40px) saturate(220%) brightness(110%);
+  -webkit-backdrop-filter: blur(40px) saturate(220%) brightness(110%);
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow:
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.2),
-    0 10px 30px -8px rgba(0, 0, 0, 0.6);
+    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.04),
+    0 32px 80px -16px rgba(0, 0, 0, 0.90),
+    0 0 0 0.5px rgba(255, 255, 255, 0.05);
 }
 
-.glass-input {
-  background: rgba(30, 32, 40, 0.55);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 1.5px 3px 0 rgba(0, 0, 0, 0.4);
-}
-
-.glass-header {
-  background: linear-gradient(180deg, rgba(32, 35, 45, 0.62) 0%, rgba(16, 17, 22, 0.75) 100%);
-  backdrop-filter: blur(32px) saturate(210%) brightness(110%);
-  -webkit-backdrop-filter: blur(32px) saturate(210%) brightness(110%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+/* Smaller cards, list items */
+.glass-card {
+  background: linear-gradient(
+    135deg,
+    rgba(44, 50, 68, 0.42) 0%,
+    rgba(22, 26, 38, 0.55) 100%
+  );
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
-    0 12px 30px rgba(0, 0, 0, 0.5);
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.14),
+    0 8px 24px -6px rgba(0, 0, 0, 0.55);
 }
 
-/* Glass Specular Glare Overlay */
+/* Input fields */
+.glass-input {
+  background: rgba(28, 32, 46, 0.60);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 2px 4px 0 rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+  color: #f0f2f7;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.glass-input:focus {
+  border-color: rgba(79, 142, 247, 0.55);
+  box-shadow:
+    inset 0 2px 4px 0 rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(79, 142, 247, 0.12);
+}
+.glass-input::placeholder { color: rgba(138, 142, 160, 0.65); }
+
+/* Top bars / headers */
+.glass-header {
+  background: linear-gradient(
+    180deg,
+    rgba(34, 38, 55, 0.68) 0%,
+    rgba(16, 18, 28, 0.80) 100%
+  );
+  backdrop-filter: blur(36px) saturate(210%) brightness(112%);
+  -webkit-backdrop-filter: blur(36px) saturate(210%) brightness(112%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    0 8px 24px rgba(0, 0, 0, 0.40);
+}
+
+/* Specular glare overlay (optional inner shine) */
 .glass-glare {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.02) 40%, transparent 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.10) 0%,
+    rgba(255, 255, 255, 0.02) 45%,
+    transparent 100%
+  );
 }
 
-/* iOS Easing & Springs */
+/* Silver glow for icon containers */
+.silver-glow-sm {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 4px 16px rgba(79, 142, 247, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.20);
+}
+
+/* ── Message Bubbles ─────────────────────────────────────────────────────────── */
+
+/* Outgoing (mine) — indigo-to-blue gradient */
+.bubble-sent {
+  background: linear-gradient(
+    145deg,
+    #4f5de4 0%,
+    #3b4fd4 60%,
+    #364ac8 100%
+  );
+  border-radius: 18px 18px 4px 18px;
+  box-shadow:
+    0 4px 16px rgba(59, 79, 212, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  color: #ffffff;
+}
+
+/* Incoming (theirs) — glass surface bubble */
+.bubble-received {
+  background: linear-gradient(
+    135deg,
+    rgba(46, 52, 72, 0.72) 0%,
+    rgba(28, 32, 48, 0.82) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 18px 18px 18px 4px;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: #f0f2f7;
+}
+
+/* ── iOS-style spring easing ─────────────────────────────────────────────────── */
 .ios-spring {
   transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* iOS Tap Feedback */
+/* ── Tactile press states ────────────────────────────────────────────────────── */
 .ios-press {
-  transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1),
+              box-shadow 0.12s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .ios-press:active {
   transform: scale(0.96);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+/* Glossy button — subtle inner highlight */
+.btn-glossy {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1),
+              filter 0.12s ease;
+}
+.btn-glossy::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 50%;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  border-radius: inherit;
+  pointer-events: none;
+}
+.btn-glossy:active {
+  transform: scale(0.97);
+  filter: brightness(0.92);
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+/* Primary accent button */
+.btn-accent {
+  background: linear-gradient(145deg, #5a96f8 0%, #4f8ef7 50%, #3d7ee8 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 4px 20px rgba(79, 142, 247, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  color: #ffffff;
+  font-weight: 600;
+}
+.btn-accent:hover {
+  background: linear-gradient(145deg, #6ba3f9 0%, #5a96f8 50%, #4f8ef7 100%);
+  box-shadow:
+    0 6px 24px rgba(79, 142, 247, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.30);
+}
+.btn-accent:active {
+  transform: scale(0.97);
+  filter: brightness(0.92);
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(142, 142, 147, 0.3);
-  border-radius: 9999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(142, 142, 147, 0.5);
-}
-
-/* Floating orb slow drift animation */
-@keyframes glass-orb-float {
-  0%   { transform: translate(0, 0) scale(1); }
-  33%  { transform: translate(30px, -20px) scale(1.04); }
-  66%  { transform: translate(-20px, 15px) scale(0.96); }
-  100% { transform: translate(0, 0) scale(1); }
-}
-.glass-orb-float {
-  animation: glass-orb-float 18s ease-in-out infinite;
-}
-.glass-orb-float-slow {
-  animation: glass-orb-float 26s ease-in-out infinite reverse;
-}
-
-/* Active conversation item glassmorphic highlight */
+/* ── Active conversation highlight ──────────────────────────────────────────── */
 .conv-active {
-  background: linear-gradient(135deg, rgba(10, 132, 255, 0.18) 0%, rgba(10, 132, 255, 0.08) 100%);
-  border-left: 3px solid #0A84FF;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+  background: linear-gradient(
+    135deg,
+    rgba(79, 142, 247, 0.16) 0%,
+    rgba(79, 142, 247, 0.07) 100%
+  );
+  border-left: 2.5px solid #4f8ef7;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-/* Glass modal backdrop */
-.glass-backdrop {
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+/* ── Custom scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar              { width: 3px; height: 3px; }
+::-webkit-scrollbar-track        { background: transparent; }
+::-webkit-scrollbar-thumb        { background: rgba(138, 142, 160, 0.22); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover  { background: rgba(138, 142, 160, 0.40); }
+
+/* ── Ambient orb animations ─────────────────────────────────────────────────── */
+@keyframes glass-orb-float {
+  0%   { transform: translate(0,   0)   scale(1);    }
+  33%  { transform: translate(28px, -18px) scale(1.04); }
+  66%  { transform: translate(-18px, 14px) scale(0.97); }
+  100% { transform: translate(0,   0)   scale(1);    }
 }
+.glass-orb-float      { animation: glass-orb-float 20s ease-in-out infinite; }
+.glass-orb-float-slow { animation: glass-orb-float 28s ease-in-out infinite reverse; }
+
+/* ── Micro-animations ────────────────────────────────────────────────────────── */
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.msg-in { animation: msg-in 0.24s cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+@keyframes fade-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.fade-scale-in { animation: fade-scale-in 0.2s cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+/* ── Glass backdrop for modals ───────────────────────────────────────────────── */
+.glass-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px) saturate(160%);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+}
+
+/* ── Unread badge ────────────────────────────────────────────────────────────── */
+.unread-badge {
+  background: #4f8ef7;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  box-shadow: 0 2px 6px rgba(79, 142, 247, 0.45);
+}
+
+/* ── Typing indicator dots ───────────────────────────────────────────────────── */
+@keyframes typing-dot {
+  0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
+  40%           { transform: scale(1.2); opacity: 1;   }
+}
+.typing-dot-1 { animation: typing-dot 1.2s infinite 0s; }
+.typing-dot-2 { animation: typing-dot 1.2s infinite 0.2s; }
+.typing-dot-3 { animation: typing-dot 1.2s infinite 0.4s; }

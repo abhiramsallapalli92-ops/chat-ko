@@ -8,7 +8,6 @@ import {
 import { db, LocalMessageRecord } from '../db/indexeddb';
 import { useAuthStore } from './useAuthStore';
 import { firestoreDB } from '../lib/firebase';
-import { encryptChatMessage, decryptChatMessage } from '../lib/encryption';
 import { playSentSound, playReceivedSound } from '../lib/soundEffects';
 import {
   collection,
@@ -407,22 +406,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
               } else if (knownDecrypted.has(msg.id)) {
                 decryptedText = knownDecrypted.get(msg.id)!;
               } else {
-                if (msg.encryptedPayload?.ciphertext) {
+                // Try Double Ratchet decryption first
+                if (msg.encryptedPayload?.ciphertext && msg.encryptedPayload?.ephemeralPublicKey) {
                   try {
-                    decryptedText = await decryptChatMessage(
-                      msg.encryptedPayload.ciphertext,
-                      msg.encryptedPayload.iv,
-                      id
-                    );
+                    const conv = get().conversations.find((c) => c.id === id);
+                    const sender = conv?.participants.find((p) => p.id === msg.senderId);
+                    if (sender && sender.id !== user.id) {
+                      const session = await get().getOrCreateRatchetSession(id, sender);
+                      decryptedText = await session.decrypt(msg.encryptedPayload as EncryptedPayload);
+                      // Persist advanced ratchet state
+                      const exported = await session.exportState();
+                      await db.ratchetStates.put({
+                        conversationId: id,
+                        recipientUserId: sender.id,
+                        state: exported,
+                        updatedAt: new Date().toISOString(),
+                      });
+                    } else if (msg.senderId === user.id) {
+                      // Own messages: recover from local store (we stored decryptedText when sending)
+                      const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
+                      const existingInLocal = localMsgs.find((m) => m.id === msg.id);
+                      decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
+                    }
                   } catch (err) {
-                    console.error('Decryption failed:', err);
+                    console.warn('Double Ratchet decryption failed, trying legacy fallback:', err);
+                    // Fallback: own messages recover from local cache
+                    if (msg.senderId === user.id) {
+                      const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
+                      const existingInLocal = localMsgs.find((m) => m.id === msg.id);
+                      decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
+                    }
                   }
-                }
-
-                if (!decryptedText && msg.senderId === user.id) {
-                  const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
-                  const existingInLocal = localMsgs.find((m) => m.id === msg.id);
-                  decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
+                } else if (msg.encryptedPayload?.ciphertext) {
+                  // Legacy messages encrypted with old scheme — recover own messages from local cache only
+                  if (msg.senderId === user.id) {
+                    const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
+                    const existingInLocal = localMsgs.find((m) => m.id === msg.id);
+                    decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
+                  }
                 }
               }
 
@@ -537,7 +558,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const payloadToEncrypt = mediaUrl || text;
-    const { ciphertext, iv } = await encryptChatMessage(payloadToEncrypt, activeConversationId);
+
+    // Encrypt with real Double Ratchet session (falls back to empty payload on error)
+    let encryptedPayload: EncryptedPayload = {
+      ciphertext: '',
+      iv: '',
+      ephemeralPublicKey: '',
+      ratchetSequence: 0,
+      previousChainLength: 0,
+    };
+    try {
+      const session = await get().getOrCreateRatchetSession(activeConversationId, recipient);
+      encryptedPayload = await session.encrypt(payloadToEncrypt);
+      // Persist advanced ratchet state so next message uses the next ratchet step
+      const exported = await session.exportState();
+      await db.ratchetStates.put({
+        conversationId: activeConversationId,
+        recipientUserId: recipient.id,
+        state: exported,
+        updatedAt: new Date().toISOString(),
+      });
+      // Update in-memory session cache with current state
+      sessionCache.set(activeConversationId, session);
+    } catch (e2eeErr) {
+      console.error('E2EE encrypt failed — message will be stored with empty payload:', e2eeErr);
+    }
 
     const msgRef = doc(collection(firestoreDB, 'conversations', activeConversationId, 'messages'));
     const messageDocData = {
@@ -545,13 +590,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       conversationId: activeConversationId,
       senderId: user.id,
       recipientId: recipient.id,
-      encryptedPayload: {
-        ciphertext,
-        iv,
-        ephemeralPublicKey: '',
-        ratchetSequence: 0,
-        previousChainLength: 0,
-      },
+      encryptedPayload,
       messageType,
       mediaUrl: (messageType === 'VIDEO_NOTE' || messageType === 'IMAGE' || messageType === 'VOICE') ? null : (mediaUrl || null),
       frameStyle: frameStyle || null,
@@ -578,13 +617,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const localRecord: LocalMessageRecord = {
       ...messageDocData,
-      encryptedPayload: {
-        ciphertext,
-        iv,
-        ephemeralPublicKey: '',
-        ratchetSequence: 0,
-        previousChainLength: 0,
-      },
+      encryptedPayload,
       decryptedText: (messageType === 'VIDEO_NOTE' || messageType === 'IMAGE' || messageType === 'VOICE') ? (mediaUrl || text || lastMsgText) : (text || lastMsgText),
       isDecrypted: true,
       mediaUrl: (messageType === 'VIDEO_NOTE' || messageType === 'IMAGE' || messageType === 'VOICE') ? null : (mediaUrl || null),

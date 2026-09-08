@@ -3,7 +3,7 @@ import ReactDom from 'react-dom';
 import { X, Shield, LogOut, Check, Camera, Upload, Volume2, VolumeX } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
 import { compressImage } from '../../lib/imageCompressor';
-import { isSoundEnabled, setSoundEnabled, playSentSound } from '../../lib/soundEffects';
+import { isSoundEnabled, setSoundEnabled, playSentSound, playModalOpenSound, playModalCloseSound } from '../../lib/soundEffects';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -22,7 +22,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   useEffect(() => {
     setMounted(true);
     setSoundActive(isSoundEnabled());
+    playModalOpenSound();
   }, []);
+
+  const handleClose = () => {
+    playModalCloseSound();
+    onClose();
+  };
 
   const toggleSound = () => {
     const next = !soundActive;
@@ -73,10 +79,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
       <div className="glass-panel border border-white/15 rounded-3xl w-full max-w-lg p-6 shadow-2xl relative overflow-y-auto max-h-[90dvh]">
         <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Shield className="w-5 h-5 text-zinc-300" />
-            <span>Settings & Profile</span>
+            <Shield className="w-5 h-5 text-[#4f8ef7]" />
+            <span>Settings &amp; Profile</span>
           </h2>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white w-11 h-11 flex items-center justify-center rounded-xl hover:bg-white/10 transition-colors">
+          <button onClick={handleClose} className="text-[#8a8ea0] hover:text-white w-11 h-11 flex items-center justify-center rounded-xl hover:bg-white/10 transition-colors ios-press">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -141,7 +147,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
           {/* Security & E2EE Info */}
           <div className="space-y-3 pt-4 border-t border-white/10">
             <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-              Security Protocol
+              Encryption Protocol
             </h3>
             <div className="glass-card p-3 rounded-2xl border border-white/10 text-xs space-y-2">
               <div className="flex justify-between items-center text-zinc-400">
@@ -150,7 +156,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               </div>
               <div className="flex justify-between items-center text-zinc-400">
                 <span>Encryption Engine</span>
-                <span className="text-zinc-200 font-semibold">Web Crypto (AES-256-GCM + PBKDF2)</span>
+                <span className="text-[#4f8ef7] font-semibold text-[11px]">X3DH + Double Ratchet</span>
               </div>
             </div>
           </div>
@@ -162,9 +168,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             </h3>
             <div className="glass-card p-3.5 rounded-2xl border border-white/10 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${soundActive ? 'bg-[#0A84FF]/20 text-[#0A84FF]' : 'bg-white/5 text-zinc-400'}`}>
-                  {soundActive ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-                </div>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${soundActive ? 'bg-[#4f8ef7]/20 text-[#4f8ef7]' : 'bg-white/5 text-[#8a8ea0]'}`}>
+                {soundActive ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+              </div>
                 <div>
                   <p className="text-xs font-semibold text-white">In-App Sound Effects</p>
                   <p className="text-[11px] text-[#8E8E93]">Play subtle sounds for sent & received messages</p>
@@ -174,7 +180,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 type="button"
                 onClick={toggleSound}
                 className={`w-12 h-7 flex items-center rounded-full p-1 transition-colors duration-200 ease-in-out ${
-                  soundActive ? 'bg-[#0A84FF]' : 'bg-[#3A3A3C]'
+                  soundActive ? 'bg-[#4f8ef7]' : 'bg-[#3A3A3C]'
                 }`}
               >
                 <div

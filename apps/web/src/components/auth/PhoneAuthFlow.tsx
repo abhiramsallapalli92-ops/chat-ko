@@ -15,9 +15,10 @@ export const PhoneAuthFlow: React.FC<PhoneAuthFlowProps> = ({ onSuccess }) => {
   const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [devCode] = useState<string>('123456');
   const [cooldown, setCooldown] = useState(0);
   const [confirmationResult, setConfirmationResult] = useState<any | null>(null);
+
+  const isDevMode = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_TEST_OTP === 'true';
 
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const { setAuth } = useAuthStore();
@@ -70,17 +71,15 @@ export const PhoneAuthFlow: React.FC<PhoneAuthFlowProps> = ({ onSuccess }) => {
       setCooldown(60);
     } catch (err: any) {
       console.warn('Firebase SMS error or test PIN mode active:', err);
-      // Display error message if SMS failed
       if (err?.code === 'auth/invalid-phone-number') {
         setError('Invalid phone number format. Please check your number.');
       } else if (err?.code === 'auth/too-many-requests') {
-        setError('SMS limit reached. Use test code 123456 to log in instantly.');
+        setError('SMS limit reached. Please try again later.');
       } else if (err?.code === 'auth/billing-not-enabled' || err?.message?.includes('billing')) {
-        setError('Firebase free tier requires Test Numbers. Click "Auto-fill & Login" or enter 123456!');
+        setError('SMS delivery unavailable. Please try again or use a different sign-in method.');
       } else {
-        setError(err.message || 'Could not send SMS. You can use test code 123456.');
+        setError(err.message || 'Could not send SMS. Please try again.');
       }
-      // Allow proceeding to OTP step so test code 123456 or retry is available
       setStep('OTP');
       setCooldown(60);
     } finally {
@@ -122,11 +121,11 @@ export const PhoneAuthFlow: React.FC<PhoneAuthFlowProps> = ({ onSuccess }) => {
     try {
       let uid = `user_${fullPhoneNumber.replace(/\D/g, '')}`;
 
-      if (confirmationResult && code !== '123456') {
+      if (confirmationResult && !(isDevMode && code === '123456')) {
         const userCredential = await confirmationResult.confirm(code);
         uid = userCredential.user.uid;
-      } else if (code !== '123456' && !confirmationResult) {
-        throw new Error('SMS session expired or unavailable. Please click Resend Code or use test code 123456.');
+      } else if (!(isDevMode && code === '123456') && !confirmationResult) {
+        throw new Error('SMS session expired or unavailable. Please click Resend Code to get a new code.');
       }
 
       const mockToken = `firebase_jwt_token_${uid}_${Date.now()}`;
@@ -176,13 +175,15 @@ export const PhoneAuthFlow: React.FC<PhoneAuthFlowProps> = ({ onSuccess }) => {
         </div>
 
         {/* Informational SMS / Dev Code Note */}
-        <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl text-emerald-300 text-xs leading-relaxed flex items-start gap-3 shadow-inner">
-          <Info className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong className="block text-emerald-300 font-semibold mb-1">Real SMS & Test Mode:</strong>
-            Enter your mobile number to receive a real SMS OTP, or use test PIN <strong className="text-white font-mono bg-emerald-500/30 px-2 py-0.5 rounded border border-emerald-500/40">123456</strong> for instant login testing.
+        {isDevMode && (
+          <div className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/25 rounded-2xl text-emerald-300 text-xs leading-relaxed flex items-start gap-3 shadow-inner">
+            <Info className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong className="block text-emerald-300 font-semibold mb-1">Dev Mode — Test OTP Active:</strong>
+              Use test PIN <strong className="text-white font-mono bg-emerald-500/30 px-2 py-0.5 rounded border border-emerald-500/40">123456</strong> for instant login testing.
+            </div>
           </div>
-        </div>
+        )}
 
         {error && (
           <div className="mb-6 p-3 bg-red-500/15 border border-red-500/30 rounded-xl text-red-400 text-xs text-center font-medium">
@@ -254,23 +255,25 @@ export const PhoneAuthFlow: React.FC<PhoneAuthFlowProps> = ({ onSuccess }) => {
               </button>
             </div>
 
-            <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-2">
-                <KeyRound className="w-4 h-4 text-emerald-400" />
-                <span>Test Code: <strong className="text-white font-mono bg-emerald-500/30 px-1.5 py-0.5 rounded border border-emerald-500/40">123456</strong></span>
+            {isDevMode && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-emerald-400" />
+                  <span>Test Code: <strong className="text-white font-mono bg-emerald-500/30 px-1.5 py-0.5 rounded border border-emerald-500/40">123456</strong></span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const digits = '123456'.split('');
+                    setOtpDigits(digits);
+                    handleVerifyOtp('123456');
+                  }}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow transition-colors"
+                >
+                  Auto-fill &amp; Login
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const digits = devCode.split('');
-                  setOtpDigits(digits);
-                  handleVerifyOtp(devCode);
-                }}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow transition-colors"
-              >
-                Auto-fill & Login
-              </button>
-            </div>
+            )}
 
             <div className="flex justify-between gap-2">
               {otpDigits.map((digit, idx) => (

@@ -262,7 +262,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess }) => {
       setCooldown(60);
     } catch (err: any) {
       console.warn('Phone auth notice:', err);
-      setError('Carrier SMS limits active. Use test PIN 123456 or click Quick Test Login below.');
+      setError('Could not send SMS. Please check your number and try again.');
       setStep('OTP');
       setCooldown(60);
     } finally {
@@ -279,16 +279,19 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess }) => {
     }
     setError(null);
     setLoading(true);
+    const isDevMode = process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_TEST_OTP === 'true';
     try {
       let uid = `user_${fullPhoneNumber.replace(/\D/g, '')}`;
-      if (confirmationResult && code !== '123456') {
+      if (confirmationResult && !(isDevMode && code === '123456')) {
         const userCredential = await confirmationResult.confirm(code);
         uid = userCredential.user.uid;
+      } else if (!(isDevMode && code === '123456') && !confirmationResult) {
+        throw new Error('SMS session expired or unavailable. Please request a new code.');
       }
       await completeAuth(uid, null, null, fullPhoneNumber, null);
     } catch (err: any) {
       console.error('Verification error:', err);
-      setError(err.message || 'Verification failed. Try code 123456.');
+      setError(err.message || 'Verification failed. Please check the 6-digit code.');
     } finally {
       setLoading(false);
     }
@@ -642,22 +645,31 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess }) => {
                 </div>
 
                 <div className="p-3 glass-card rounded-xl text-zinc-300 text-xs flex items-center justify-between shadow-sm border border-white/10">
-                  <div className="flex items-center gap-2">
-                    <KeyRound className="w-4 h-4 text-zinc-300" />
-                    <span>Test Code: <strong className="text-white font-mono bg-white/10 px-1.5 py-0.5 rounded border border-white/20">123456</strong></span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStep('OTP');
-                      const digits = '123456'.split('');
-                      setOtpDigits(digits);
-                      handleVerifyOtp('123456');
-                    }}
-                    className="bg-zinc-700 hover:bg-zinc-600 border border-zinc-500/50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow transition-colors active:scale-95"
-                  >
-                    Quick Test Login
-                  </button>
+                  {process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_ENABLE_TEST_OTP === 'true' ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-zinc-300" />
+                        <span>Test Code: <strong className="text-white font-mono bg-white/10 px-1.5 py-0.5 rounded border border-white/20">123456</strong></span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStep('OTP');
+                          const digits = '123456'.split('');
+                          setOtpDigits(digits);
+                          handleVerifyOtp('123456');
+                        }}
+                        className="bg-zinc-700 hover:bg-zinc-600 border border-zinc-500/50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow transition-colors active:scale-95"
+                      >
+                        Quick Test Login
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="w-4 h-4 text-zinc-300" />
+                      <span>Enter the 6-digit code sent to your phone</span>
+                    </div>
+                  )}
                 </div>
 
                 <button
