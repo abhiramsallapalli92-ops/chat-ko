@@ -1,0 +1,39 @@
+{
+  "name": "@chat/web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "npx next dev -p 3000",
+    "build": "npx next build",
+    "start": "npx next start -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@chat/crypto": "*",
+    "@chat/shared-types": "*",
+    "clsx": "^2.1.0",
+    "dexie": "^4.0.4",
+    "dexie-react-hooks": "^1.1.7",
+    "firebase": "^10.11.0",
+    "framer-motion": "^11.1.7",
+    "lucide-react": "^0.368.0",
+    "next": "^14.2.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "socket.io-client": "^4.7.5",
+    "tailwind-merge": "^2.2.2",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@types/node": "^20.12.7",
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "typescript": "^5.4.5"
+  }
+}

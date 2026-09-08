@@ -1,0 +1,10 @@
+node_modules/ 
+apps/web/out/ 
+apps/web/android/ 
+.env 
+*.log 
+.firebase/ 
+apps/web/.next/ 
+apps/web/.env.local 
+*.env.local 
+apps/server/prisma/dev.db 

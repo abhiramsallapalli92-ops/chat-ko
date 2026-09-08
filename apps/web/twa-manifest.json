@@ -1,0 +1,22 @@
+{
+  "packageId": "com.chatko.messenger",
+  "host": "chatko-45fa7.web.app",
+  "name": "Chat-Ko E2EE Messenger",
+  "launcherName": "Chat-Ko",
+  "themeColor": "#0B141A",
+  "navigationColor": "#0B141A",
+  "backgroundColor": "#0B141A",
+  "startUrl": "/",
+  "iconUrl": "https://chatko-45fa7.web.app/icon-512.png",
+  "maskableIconUrl": "https://chatko-45fa7.web.app/icon-512.png",
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "chatko"
+  },
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://chatko-45fa7.web.app/manifest.json",
+  "fallbackType": "customtabs",
+  "enableNotifications": true
+}

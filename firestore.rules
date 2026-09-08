@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow read & write access to Chat-Ko collections
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    match /keyBundles/{userId} {
+      allow read, write: if true;
+    }
+
+    match /calls/{callId} {
+      allow read, write: if true;
+      match /{document=**} {
+        allow read, write: if true;
+      }
+    }
+
+    match /messageRequests/{requestId} {
+      allow read, write: if true;
+    }
+
+    match /conversations/{conversationId} {
+      allow read, write: if true;
+
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}

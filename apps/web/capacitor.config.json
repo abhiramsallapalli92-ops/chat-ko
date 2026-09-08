@@ -1,0 +1,10 @@
+{
+  "appId": "app.chatko.messenger",
+  "appName": "Chat-Ko",
+  "webDir": "out",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://chatko-45fa7.web.app",
+    "cleartext": true
+  }
+}
