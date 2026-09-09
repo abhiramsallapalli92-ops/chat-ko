@@ -606,7 +606,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
                   <AudioPlayerBubble src={msg.mediaUrl || msg.decryptedText || ''} />
                 ) : (
                   <p className="text-sm whitespace-pre-wrap leading-relaxed break-words pr-12 font-normal">
-                    {msg.text || (msg.decryptedText && msg.decryptedText !== '[Encrypted Message]' ? msg.decryptedText : '') || (msg.encryptedPayload?.ciphertext && !msg.encryptedPayload.ciphertext.startsWith('eyJ') ? msg.encryptedPayload.ciphertext : '') || ''}
+                    {msg.decryptedText && msg.decryptedText !== '[Encrypted Message]'
+                      ? msg.decryptedText
+                      : msg.text && msg.text !== '[Encrypted Message]'
+                      ? msg.text
+                      : msg.isDecrypted === false
+                      ? '⚠️ Unable to decrypt this message'
+                      : '🔒 Encrypted message'}
                   </p>
                 )}
 

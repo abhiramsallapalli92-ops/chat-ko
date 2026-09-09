@@ -176,4 +176,91 @@ describe('Crypto Package - E2EE Signal Protocol Engine', () => {
     const decryptedText = new TextDecoder().decode(decrypted);
     expect(decryptedText).toBe(sampleText);
   });
+  it('should simulate full Alice to Bob E2EE store flow including handshake payload, persistence, and bidirectional ratchet', async () => {
+    // 1. Setup Alice and Bob keys
+    const aliceKeys = await generateClientDeviceKeys(5);
+    const bobKeys = await generateClientDeviceKeys(5);
+
+    const bobPublicBundle = extractPublicBundle(bobKeys);
+
+    // 2. Alice initiates X3DH session with Bob's public bundle
+    const aliceIKPrivate = await importPrivateKey(aliceKeys.identityKey.privateKey);
+    const aliceX3dh = await initiateX3DHSession(aliceIKPrivate, {
+      identityPublicKey: bobPublicBundle.identityPublicKey,
+      signedPreKey: bobPublicBundle.signedPreKey,
+      oneTimePreKey: bobPublicBundle.oneTimePreKeys[0],
+    });
+
+    const aliceSession = await DoubleRatchetSession.initAsAlice(
+      aliceX3dh.sharedMasterKey,
+      bobPublicBundle.signedPreKey.publicKey
+    );
+
+    // Alice encrypts first message (attaching X3DH handshake metadata)
+    const msg1Text = "Hello Bob, this is genuine E2EE!";
+    const payload1 = await aliceSession.encrypt(msg1Text);
+    payload1.isInitialMessage = true;
+    payload1.x3dhEphemeralPublicKey = aliceX3dh.aliceEphemeralPublicKey;
+    payload1.senderIdentityPublicKey = aliceKeys.identityKey.publicKey;
+    payload1.oneTimePreKeyIdUsed = aliceX3dh.oneTimePreKeyIdUsed;
+
+    // Verify ciphertext is NOT plaintext
+    expect(payload1.ciphertext).not.toBe(msg1Text);
+    expect(payload1.iv).toBeDefined();
+    expect(payload1.ephemeralPublicKey).toBeDefined();
+
+    // Alice exports state (as done for IndexedDB)
+    const aliceSavedState = await aliceSession.exportState();
+
+    // 3. Bob receives initial message, derives shared master key via receiveX3DHSession
+    const bobIKPrivate = await importPrivateKey(bobKeys.identityKey.privateKey);
+    const bobSPKPrivate = await importPrivateKey(bobKeys.signedPreKey.privateKey);
+    const bobOPKMap = new Map<number, CryptoKey>();
+    for (const otpk of bobKeys.oneTimePreKeys) {
+      bobOPKMap.set(otpk.keyId, await importPrivateKey(otpk.privateKey));
+    }
+
+    const bobMasterKey = await receiveX3DHSession(
+      bobIKPrivate,
+      bobSPKPrivate,
+      bobOPKMap,
+      payload1.senderIdentityPublicKey!,
+      payload1.x3dhEphemeralPublicKey!,
+      payload1.oneTimePreKeyIdUsed
+    );
+
+    const bobDHKeyPair = {
+      privateKey: bobSPKPrivate,
+      publicKey: await importPublicKey(bobKeys.signedPreKey.publicKey)
+    };
+
+    const bobSession = await DoubleRatchetSession.initAsBob(
+      bobMasterKey,
+      bobDHKeyPair
+    );
+
+    // Bob decrypts message 1
+    const decrypted1 = await bobSession.decrypt(payload1);
+    expect(decrypted1).toBe(msg1Text);
+
+    // Bob exports state (as done for IndexedDB)
+    const bobSavedState = await bobSession.exportState();
+
+    // 4. Bob reloads session from saved state and replies to Alice
+    const restoredBobSession = await DoubleRatchetSession.importState(bobSavedState);
+    const msg2Text = "Hey Alice, end-to-end encryption is working flawlessly!";
+    const payload2 = await restoredBobSession.encrypt(msg2Text);
+    expect(payload2.ciphertext).not.toBe(msg2Text);
+
+    // 5. Alice reloads session from saved state and decrypts Bob's reply
+    const restoredAliceSession = await DoubleRatchetSession.importState(aliceSavedState);
+    const decrypted2 = await restoredAliceSession.decrypt(payload2);
+    expect(decrypted2).toBe(msg2Text);
+
+    // 6. Alice sends back a 3rd message
+    const msg3Text = "Round-trip multi-message ratchet test passes.";
+    const payload3 = await restoredAliceSession.encrypt(msg3Text);
+    const decrypted3 = await restoredBobSession.decrypt(payload3);
+    expect(decrypted3).toBe(msg3Text);
+  });
 });

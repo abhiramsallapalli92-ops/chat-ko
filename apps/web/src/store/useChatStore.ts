@@ -82,6 +82,13 @@ interface ChatState {
 
 // In-memory active Double Ratchet sessions cache
 const sessionCache = new Map<string, DoubleRatchetSession>();
+// Pending X3DH handshakes for initial outgoing messages
+interface PendingX3DHHandshake {
+  x3dhEphemeralPublicKey: string;
+  senderIdentityPublicKey: string;
+  oneTimePreKeyIdUsed?: number;
+}
+const pendingX3DHHandshakes = new Map<string, PendingX3DHHandshake>();
 // In-memory user profile cache to avoid re-fetching on every snapshot
 const userProfileCache = new Map<string, UserProfile>();
 // Track active message unsubscriber to prevent memory/listener leaks on chat switch
@@ -174,7 +181,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           updatedAt: data.updatedAt || new Date().toISOString(),
         });
 
-        // Bug 5: extract OTHER participant's typing status from Firestore
+        // Extract OTHER participant's typing status from Firestore
         if (data.typingUsers && currentUser) {
           const otherParticipantId = participantIds.find(id => id !== currentUser.id);
           if (otherParticipantId) {
@@ -183,7 +190,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
       }
 
-      // Bug 1: sort by most recent activity descending so newest chat is always first
+      // Sort by most recent activity descending so newest chat is always first
       convList.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
       set({ conversations: convList, remoteTypingStatus: remoteTypingUpdate });
@@ -210,7 +217,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
     newUnsubs.push(unsubUsers);
 
-    // 3. Subscribe to incoming calls for current user
     // 3. Subscribe to incoming calls for current user
     const incomingCallsQuery = query(
       collection(firestoreDB, 'calls'),
@@ -360,6 +366,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     get().unsubscribers.forEach((unsub) => unsub());
     set({ unsubscribers: [] });
+    sessionCache.clear();
+    pendingX3DHHandshakes.clear();
   },
 
   fetchConversations: async () => {
@@ -400,8 +408,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const localMsgs = await db.messages.where('conversationId').equals(id).sortBy('createdAt');
     const sanitizedLocalMsgs = localMsgs.map((m) => ({
       ...m,
-      decryptedText: (m.decryptedText && m.decryptedText !== '[Encrypted Message]') ? m.decryptedText : (m.text || m.encryptedPayload?.ciphertext || ''),
-      text: m.text || (m.decryptedText && m.decryptedText !== '[Encrypted Message]' ? m.decryptedText : '') || m.encryptedPayload?.ciphertext || '',
+      decryptedText: (m.decryptedText && m.decryptedText !== '[Encrypted Message]') ? m.decryptedText : (m.text && m.text !== '[Encrypted Message]' ? m.text : ''),
+      text: (m.text && m.text !== '[Encrypted Message]') ? m.text : (m.decryptedText && m.decryptedText !== '[Encrypted Message]' ? m.decryptedText : ''),
     }));
     set({
       messages: {
@@ -421,35 +429,88 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // Fast lookup map for already-decrypted messages from memory & local db
           const knownDecrypted = new Map<string, string>();
           (get().messages[id] || []).forEach((m) => {
-            if (m.decryptedText && m.decryptedText !== '[Encrypted Message]') {
+            if (m.decryptedText && m.decryptedText !== '[Encrypted Message]' && !m.decryptedText.startsWith('⚠️')) {
               knownDecrypted.set(m.id, m.decryptedText);
             }
           });
           localMsgs.forEach((m) => {
-            if (m.decryptedText && m.decryptedText !== '[Encrypted Message]' && !knownDecrypted.has(m.id)) {
+            if (m.decryptedText && m.decryptedText !== '[Encrypted Message]' && !m.decryptedText.startsWith('⚠️') && !knownDecrypted.has(m.id)) {
               knownDecrypted.set(m.id, m.decryptedText);
             }
           });
 
-          // Process messages directly and reliably
+          // Process messages sequentially to preserve Double Ratchet sequence order
           const processedMsgs: LocalMessageRecord[] = [];
           for (const docSnap of snapshot.docs) {
             const data = docSnap.data();
-            const msg = { id: docSnap.id, ...data } as MessageDTO & { isDeleted?: boolean; mediaUrl?: string; text?: string; content?: string };
+            const msg = { id: docSnap.id, ...data } as MessageDTO & { isDeleted?: boolean; mediaUrl?: string; text?: string; content?: string; decryptedText?: string };
             let textValue = '';
+            let isDecrypted = false;
 
             if (msg.isDeleted) {
               textValue = '🚫 This message was deleted';
-            } else if (data.text) {
-              textValue = data.text;
-            } else if (data.decryptedText && data.decryptedText !== '[Encrypted Message]') {
-              textValue = data.decryptedText;
-            } else if (data.content) {
-              textValue = data.content;
-            } else if (data.encryptedPayload?.ciphertext && data.encryptedPayload.ciphertext !== '[Encrypted Message]') {
-              textValue = data.encryptedPayload.ciphertext;
+              isDecrypted = true;
             } else if (knownDecrypted.has(msg.id)) {
               textValue = knownDecrypted.get(msg.id)!;
+              isDecrypted = true;
+            } else if (msg.senderId === user.id) {
+              // Message sent by current user: retrieve plaintext from local DB if exists
+              const localMatch = await db.messages.get(msg.id);
+              if (localMatch && localMatch.decryptedText && localMatch.decryptedText !== '[Encrypted Message]') {
+                textValue = localMatch.decryptedText;
+                isDecrypted = true;
+              } else if (msg.decryptedText && msg.decryptedText !== '[Encrypted Message]') {
+                textValue = msg.decryptedText;
+                isDecrypted = true;
+              } else {
+                textValue = '🔒 Encrypted message';
+                isDecrypted = true;
+              }
+              knownDecrypted.set(msg.id, textValue);
+            } else if (msg.encryptedPayload && msg.encryptedPayload.ciphertext) {
+              // Incoming message: decrypt via Double Ratchet
+              try {
+                let session = sessionCache.get(id);
+                if (!session) {
+                  const stored = await db.ratchetStates.get(id);
+                  if (stored && stored.state) {
+                    session = await DoubleRatchetSession.importState(stored.state);
+                    sessionCache.set(id, session);
+                  }
+                }
+
+                if (!session) {
+                  if (msg.encryptedPayload.isInitialMessage) {
+                    session = await get().getOrCreateRatchetSessionAsBob(id, msg.encryptedPayload);
+                  } else {
+                    throw new Error(`No local Double Ratchet session found for conversation ${id} and message is not marked as initial`);
+                  }
+                }
+
+                const decrypted = await session.decrypt(msg.encryptedPayload);
+                textValue = decrypted;
+                isDecrypted = true;
+                knownDecrypted.set(msg.id, textValue);
+
+                // Persist updated session state
+                const updatedState = await session.exportState();
+                await db.ratchetStates.put({
+                  conversationId: id,
+                  recipientUserId: msg.senderId,
+                  state: updatedState,
+                  updatedAt: new Date().toISOString(),
+                });
+              } catch (decryptErr) {
+                console.error(`[E2EE Decrypt Failure] Message ${msg.id} in conversation ${id}:`, decryptErr);
+                textValue = '⚠️ Unable to decrypt this message';
+                isDecrypted = false;
+              }
+            } else if (data.text && data.text !== '[Encrypted Message]') {
+              textValue = data.text;
+              isDecrypted = true;
+            } else {
+              textValue = '⚠️ Unable to decrypt this message';
+              isDecrypted = false;
             }
 
             // Mark as READ in Firestore if incoming message & play sound for new incoming message
@@ -468,7 +529,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ...msg,
               text: textValue,
               decryptedText: textValue,
-              isDecrypted: true,
+              isDecrypted,
               isDeleted: msg.isDeleted || false,
               mediaUrl: msg.mediaUrl || (data.mediaUrl as string) || null,
             } as LocalMessageRecord);
@@ -491,14 +552,199 @@ export const useChatStore = create<ChatState>((set, get) => ({
     activeMessageUnsub = unsubMessages;
   },
 
-  // Initiator session helper
-  getOrCreateRatchetSession: async (conversationId: string, recipientUser: UserProfile): Promise<any> => {
-    return null;
+  // Initiator session helper (Alice / Sender)
+  getOrCreateRatchetSession: async (conversationId: string, recipientUser: UserProfile): Promise<DoubleRatchetSession> => {
+    // 1. Check in-memory session cache
+    if (sessionCache.has(conversationId)) {
+      return sessionCache.get(conversationId)!;
+    }
+
+    // 2. Check Dexie IndexedDB persisted ratchet state
+    const existingRecord = await db.ratchetStates.get(conversationId);
+    if (existingRecord && existingRecord.state) {
+      try {
+        const session = await DoubleRatchetSession.importState(existingRecord.state);
+        sessionCache.set(conversationId, session);
+        return session;
+      } catch (err) {
+        console.error(`Failed to import existing ratchet state for ${conversationId}:`, err);
+      }
+    }
+
+    // 3. None exists: fetch recipient's public key bundle from Firestore
+    const recipientBundleRef = doc(firestoreDB, 'keyBundles', recipientUser.id);
+    const recipientBundleSnap = await getDoc(recipientBundleRef);
+    if (!recipientBundleSnap.exists()) {
+      throw new Error(`Recipient public key bundle not found for user ${recipientUser.name || recipientUser.id}. They may need to sign in to initialize keys.`);
+    }
+
+    const bundleData = recipientBundleSnap.data();
+    if (!bundleData.identityPublicKey || !bundleData.signedPreKey?.publicKey) {
+      throw new Error('Recipient key bundle is invalid or missing required public keys.');
+    }
+
+    // Load our own device keys
+    const deviceKeysRecord = await db.deviceKeys.get('current');
+    if (!deviceKeysRecord) {
+      throw new Error('Local device keys not initialized in IndexedDB.');
+    }
+
+    const aliceIdentityPrivateKey = await importPrivateKey(deviceKeysRecord.identityPrivateKey);
+
+    // Pick a one-time prekey if available
+    const oneTimePreKeys = bundleData.oneTimePreKeys || [];
+    const selectedOPK = oneTimePreKeys.length > 0 ? oneTimePreKeys[0] : undefined;
+
+    // Run X3DH initiator
+    const x3dhResult = await initiateX3DHSession(
+      aliceIdentityPrivateKey,
+      {
+        identityPublicKey: bundleData.identityPublicKey,
+        signedPreKey: {
+          publicKey: bundleData.signedPreKey.publicKey,
+        },
+        oneTimePreKey: selectedOPK ? {
+          keyId: selectedOPK.keyId,
+          publicKey: selectedOPK.publicKey,
+        } : undefined,
+      }
+    );
+
+    // Initialize Double Ratchet session as Alice with recipient's signed prekey public key
+    const session = await DoubleRatchetSession.initAsAlice(
+      x3dhResult.sharedMasterKey,
+      bundleData.signedPreKey.publicKey
+    );
+
+    // Persist session to IndexedDB
+    const exportedState = await session.exportState();
+    await db.ratchetStates.put({
+      conversationId,
+      recipientUserId: recipientUser.id,
+      state: exportedState,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Cache in memory
+    sessionCache.set(conversationId, session);
+
+    // Store X3DH handshake parameters so sendMessage() can attach them to the first message payload
+    pendingX3DHHandshakes.set(conversationId, {
+      x3dhEphemeralPublicKey: x3dhResult.aliceEphemeralPublicKey,
+      senderIdentityPublicKey: deviceKeysRecord.identityPublicKey,
+      oneTimePreKeyIdUsed: x3dhResult.oneTimePreKeyIdUsed,
+    });
+
+    return session;
   },
 
-  // Receiver session helper
-  getOrCreateRatchetSessionAsBob: async (conversationId: string, payload: EncryptedPayload): Promise<any> => {
-    return null;
+  // Receiver session helper (Bob / Receiver)
+  getOrCreateRatchetSessionAsBob: async (conversationId: string, payload: EncryptedPayload): Promise<DoubleRatchetSession> => {
+    // 1. Check in-memory cache
+    if (sessionCache.has(conversationId)) {
+      return sessionCache.get(conversationId)!;
+    }
+
+    // 2. Check IndexedDB
+    const existingRecord = await db.ratchetStates.get(conversationId);
+    if (existingRecord && existingRecord.state) {
+      try {
+        const session = await DoubleRatchetSession.importState(existingRecord.state);
+        sessionCache.set(conversationId, session);
+        return session;
+      } catch (err) {
+        console.error(`Failed to import existing ratchet state for ${conversationId}:`, err);
+      }
+    }
+
+    // 3. Load our private keys from IndexedDB
+    const deviceKeysRecord = await db.deviceKeys.get('current');
+    if (!deviceKeysRecord) {
+      throw new Error('Local device keys not found in IndexedDB.');
+    }
+
+    if (!payload.senderIdentityPublicKey || !payload.x3dhEphemeralPublicKey) {
+      throw new Error('Initial message payload missing senderIdentityPublicKey or x3dhEphemeralPublicKey.');
+    }
+
+    const bobIdentityPrivateKey = await importPrivateKey(deviceKeysRecord.identityPrivateKey);
+    const bobSignedPrePrivateKey = await importPrivateKey(deviceKeysRecord.signedPreKeyPrivate);
+    const bobSignedPrePublicKey = await importPublicKey(deviceKeysRecord.signedPreKeyPublic);
+
+    const bobOneTimePrivateKeysMap = new Map<number, CryptoKey>();
+    if (deviceKeysRecord.oneTimePreKeys) {
+      for (const otpk of deviceKeysRecord.oneTimePreKeys) {
+        try {
+          const key = await importPrivateKey(otpk.privateKey);
+          bobOneTimePrivateKeysMap.set(otpk.keyId, key);
+        } catch (err) {
+          console.warn(`Failed to import one-time prekey id ${otpk.keyId}:`, err);
+        }
+      }
+    }
+
+    // Run X3DH receiver
+    const sharedMasterKey = await receiveX3DHSession(
+      bobIdentityPrivateKey,
+      bobSignedPrePrivateKey,
+      bobOneTimePrivateKeysMap,
+      payload.senderIdentityPublicKey,
+      payload.x3dhEphemeralPublicKey,
+      payload.oneTimePreKeyIdUsed
+    );
+
+    // Initialize Double Ratchet session as Bob with our signed prekey pair
+    const bobDHKeyPair: CryptoKeyPair = {
+      privateKey: bobSignedPrePrivateKey,
+      publicKey: bobSignedPrePublicKey,
+    };
+
+    const session = await DoubleRatchetSession.initAsBob(
+      sharedMasterKey,
+      bobDHKeyPair
+    );
+
+    // If a one-time prekey was consumed, remove it locally and from Firestore
+    if (payload.oneTimePreKeyIdUsed !== undefined) {
+      const updatedOTPKeys = (deviceKeysRecord.oneTimePreKeys || []).filter(
+        (k) => k.keyId !== payload.oneTimePreKeyIdUsed
+      );
+      await db.deviceKeys.update('current', { oneTimePreKeys: updatedOTPKeys });
+
+      const { user } = useAuthStore.getState();
+      if (user) {
+        try {
+          const keyBundleRef = doc(firestoreDB, 'keyBundles', user.id);
+          const keyBundleSnap = await getDoc(keyBundleRef);
+          if (keyBundleSnap.exists()) {
+            const bundleData = keyBundleSnap.data();
+            const remoteOTPKeys = (bundleData.oneTimePreKeys || []).filter(
+              (k: any) => k.keyId !== payload.oneTimePreKeyIdUsed
+            );
+            await updateDoc(keyBundleRef, {
+              oneTimePreKeys: remoteOTPKeys,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        } catch (syncErr) {
+          console.warn('Failed to remove consumed oneTimePreKey from Firestore:', syncErr);
+        }
+      }
+    }
+
+    // Persist session state
+    const exportedState = await session.exportState();
+    await db.ratchetStates.put({
+      conversationId,
+      recipientUserId: '',
+      state: exportedState,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Cache in memory
+    sessionCache.set(conversationId, session);
+
+    return session;
   },
 
   sendMessage: async (text: string, replyToId?: string, messageType: 'TEXT' | 'IMAGE' | 'VOICE' | 'VIDEO_NOTE' = 'TEXT', mediaUrl?: string, frameStyle?: string) => {
@@ -509,7 +755,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conv = conversations.find((c) => c.id === activeConversationId);
     if (!conv) return;
 
-    const recipient = conv.participants.find((p) => p.id !== user.id);
+    const recipient = conv.participants.find((p) => p && p.id !== user.id);
     if (!recipient) return;
 
     const myBlocked = (user as any).blockedUserIds || [];
@@ -520,14 +766,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const payloadText = text || '';
+    const lastMsgText = messageType === 'IMAGE' ? '📷 Photo' : messageType === 'VOICE' ? '🎵 Voice Note' : messageType === 'VIDEO_NOTE' ? '🎥 10s Video Note' : (payloadText || 'Message');
 
-    const encryptedPayload: EncryptedPayload = {
-      ciphertext: payloadText,
-      iv: '',
-      ephemeralPublicKey: '',
-      ratchetSequence: 0,
-      previousChainLength: 0,
-    };
+    // 1. Get or create active Double Ratchet session for recipient
+    const session = await get().getOrCreateRatchetSession(activeConversationId, recipient);
+
+    // 2. Encrypt plaintext payload with Double Ratchet
+    const plaintextToEncrypt = payloadText || (messageType !== 'TEXT' ? lastMsgText : '');
+    const encryptedPayload: EncryptedPayload = await session.encrypt(plaintextToEncrypt);
+
+    // 3. Attach X3DH handshake headers if this is the initial message
+    if (pendingX3DHHandshakes.has(activeConversationId)) {
+      const handshake = pendingX3DHHandshakes.get(activeConversationId)!;
+      encryptedPayload.isInitialMessage = true;
+      encryptedPayload.x3dhEphemeralPublicKey = handshake.x3dhEphemeralPublicKey;
+      encryptedPayload.senderIdentityPublicKey = handshake.senderIdentityPublicKey;
+      if (handshake.oneTimePreKeyIdUsed !== undefined) {
+        encryptedPayload.oneTimePreKeyIdUsed = handshake.oneTimePreKeyIdUsed;
+      }
+      pendingX3DHHandshakes.delete(activeConversationId);
+    }
+
+    // 4. Persist updated ratchet state (sending sequence ratcheted forward)
+    const updatedState = await session.exportState();
+    await db.ratchetStates.put({
+      conversationId: activeConversationId,
+      recipientUserId: recipient.id,
+      state: updatedState,
+      updatedAt: new Date().toISOString(),
+    });
 
     const msgRef = doc(collection(firestoreDB, 'conversations', activeConversationId, 'messages'));
     const messageDocData = {
@@ -535,8 +802,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       conversationId: activeConversationId,
       senderId: user.id,
       recipientId: recipient.id,
-      text: payloadText,
-      decryptedText: payloadText,
+      text: '[Encrypted Message]',
+      decryptedText: '[Encrypted Message]',
       encryptedPayload,
       messageType,
       mediaUrl: mediaUrl || null,
@@ -547,26 +814,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
       createdAt: new Date().toISOString(),
     };
 
+    // Store ciphertext document in Firestore (never plaintext)
     await setDoc(msgRef, messageDocData);
     playSentSound();
 
-    const lastMsgText = messageType === 'IMAGE' ? '📷 Photo' : messageType === 'VOICE' ? '🎵 Voice Note' : messageType === 'VIDEO_NOTE' ? '🎥 10s Video Note' : text;
-
+    // Update conversation document preview with encrypted placeholder (never plaintext)
     await updateDoc(doc(firestoreDB, 'conversations', activeConversationId), {
       lastMessage: {
         id: msgRef.id,
         senderId: user.id,
-        text: lastMsgText,
-        decryptedText: lastMsgText,
+        text: '[Encrypted Message]',
+        decryptedText: '[Encrypted Message]',
         createdAt: messageDocData.createdAt,
       },
       updatedAt: messageDocData.createdAt,
     });
 
+    // Store decrypted plaintext in local IndexedDB & memory for immediate UI display
     const localRecord: LocalMessageRecord = {
       ...messageDocData,
       encryptedPayload,
-      decryptedText: payloadText || lastMsgText,
+      decryptedText: plaintextToEncrypt || lastMsgText,
+      text: plaintextToEncrypt || lastMsgText,
       isDecrypted: true,
       mediaUrl: mediaUrl || null,
       messageType,
