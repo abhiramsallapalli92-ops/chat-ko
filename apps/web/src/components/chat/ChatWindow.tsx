@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   ShieldCheck,
@@ -21,7 +21,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useChatStore } from '../../store/useChatStore';
+import { useChatStore, isUserOnline } from '../../store/useChatStore';
 import { MessageInput } from './MessageInput';
 import { CallModal } from './CallModal';
 import { LocalMessageRecord } from '../../db/indexeddb';
@@ -235,6 +235,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
     activeConversationId,
     messages,
     typingStatus,
+    remoteTypingStatus,
     userPresence,
     setSafetyVerifyContact,
     sendMessage,
@@ -249,19 +250,53 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [activeCall, setActiveCall] = useState<'AUDIO' | 'VIDEO' | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [whisperTimer, setWhisperTimer] = useState<number>(0); // 0 = off, 10s, 30s, 300s
+  const [whisperTimer, setWhisperTimer] = useState<number>(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialLoadRef = useRef<boolean>(true);  // true until first scroll for this conv
+  const lastConvIdRef = useRef<string | null>(null); // tracks which conv was last loaded
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const otherUser = activeConv?.participants?.find((p) => p && p.id !== user?.id);
   const activeMessages = activeConversationId ? messages[activeConversationId] || [] : [];
-  const isTyping = activeConversationId ? typingStatus[activeConversationId] : false;
+  // Bug 5: read OTHER participant's typing state from Firestore (remoteTypingStatus),
+  // not our own local typingStatus which only reflects our own keyboard input
+  const isTyping = activeConversationId ? (remoteTypingStatus[activeConversationId] ?? false) : false;
 
+  // Bug 3: reset initial-load flag whenever the active conversation changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (activeConversationId !== lastConvIdRef.current) {
+      isInitialLoadRef.current = true;
+      lastConvIdRef.current = activeConversationId;
+    }
+  }, [activeConversationId]);
+
+  // Bug 3: smart scroll — instant on initial load, smooth only for new messages near bottom
+  useEffect(() => {
+    const end = messagesEndRef.current;
+    const container = scrollContainerRef.current;
+    if (!end) return;
+
+    if (isInitialLoadRef.current) {
+      // First time this conversation's messages populate: jump instantly, no animation
+      end.scrollIntoView({ behavior: 'auto' });
+      isInitialLoadRef.current = false;
+      return;
+    }
+
+    // Subsequent updates (new messages): only auto-scroll if user is near the bottom
+    if (container) {
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom < 200) {
+        end.scrollIntoView({ behavior: 'smooth' });
+      }
+      // If user scrolled up to read old messages, don't interrupt them
+    } else {
+      end.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [activeMessages, isTyping]);
 
   if (!activeConv || !otherUser) {
@@ -373,7 +408,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
                 <span>offline</span>
               ) : isTyping ? (
                 <span className="text-[#4f8ef7] font-medium">typing...</span>
-              ) : presence?.status === 'ONLINE' || otherUser.status === 'ONLINE' ? (
+              ) : isUserOnline(presence) ? (
                 <span className="text-emerald-400 font-medium">online</span>
               ) : (
                 <span>{otherUser.phoneNumber || (otherUser as any).email || 'Chat-Ko Contact'}</span>
@@ -555,25 +590,23 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
                     <Ban className="w-4 h-4 text-[#8E8E93] flex-shrink-0" />
                     <span>This message was deleted</span>
                   </div>
-                ) : msg.messageType === 'VIDEO_NOTE' || (msg.mediaUrl && (msg.mediaUrl.startsWith('data:video') || msg.mediaUrl.startsWith('blob:'))) || (msg.decryptedText && (msg.decryptedText.startsWith('data:video') || msg.decryptedText.startsWith('blob:'))) ? (
+                ) : (msg.messageType === 'VIDEO_NOTE' || (msg.decryptedText && (msg.decryptedText.startsWith('data:video') || msg.decryptedText.startsWith('blob:')))) && (msg.mediaUrl || (msg.decryptedText && (msg.decryptedText.startsWith('data:video') || msg.decryptedText.startsWith('blob:')))) ? (
                   <MediaVideoNoteBubble
                     src={msg.mediaUrl || msg.decryptedText || ''}
                     frameStyle={msg.frameStyle}
                     caption={msg.decryptedText}
                   />
-                ) : msg.messageType === 'IMAGE' || (msg.mediaUrl && msg.mediaUrl.startsWith('data:image')) || (msg.decryptedText && msg.decryptedText.startsWith('data:image')) ? (
+                ) : (msg.messageType === 'IMAGE' || (msg.decryptedText && msg.decryptedText.startsWith('data:image'))) && ((msg.mediaUrl && (msg.mediaUrl.startsWith('data:image') || msg.mediaUrl.startsWith('blob:') || msg.mediaUrl.startsWith('http'))) || (msg.decryptedText && msg.decryptedText.startsWith('data:image'))) ? (
                   <MediaImageBubble
                     src={msg.mediaUrl || msg.decryptedText || ''}
                     caption={msg.decryptedText}
                     onImageClick={(url) => setLightboxImage(url)}
                   />
-                ) : (msg.messageType as any) === 'AUDIO' || msg.messageType === 'VOICE' || (msg.mediaUrl && msg.mediaUrl.startsWith('data:audio')) ? (
+                ) : ((msg.messageType as any) === 'AUDIO' || msg.messageType === 'VOICE') && ((msg.mediaUrl && (msg.mediaUrl.startsWith('data:audio') || msg.mediaUrl.startsWith('blob:') || msg.mediaUrl.startsWith('http'))) || (msg.decryptedText && msg.decryptedText.startsWith('data:audio'))) ? (
                   <AudioPlayerBubble src={msg.mediaUrl || msg.decryptedText || ''} />
                 ) : (
                   <p className="text-sm whitespace-pre-wrap leading-relaxed break-words pr-12 font-normal">
-                    {msg.decryptedText && (msg.decryptedText.startsWith('data:') || msg.decryptedText.startsWith('blob:'))
-                      ? '📷 Media Attachment'
-                      : (msg.decryptedText || '🔒 Encrypted Payload')}
+                    {msg.text || (msg.decryptedText && msg.decryptedText !== '[Encrypted Message]' ? msg.decryptedText : '') || (msg.encryptedPayload?.ciphertext && !msg.encryptedPayload.ciphertext.startsWith('eyJ') ? msg.encryptedPayload.ciphertext : '') || ''}
                   </p>
                 )}
 

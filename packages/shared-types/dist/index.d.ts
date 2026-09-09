@@ -61,6 +61,9 @@ export interface EncryptedPayload {
     ratchetSequence: number;
     previousChainLength: number;
     oneTimePreKeyIdUsed?: number;
+    x3dhEphemeralPublicKey?: string;
+    senderIdentityPublicKey?: string;
+    isInitialMessage?: boolean;
 }
 export interface SendMessageRequest {
     conversationId: string;
@@ -80,6 +83,7 @@ export interface MessageDTO {
     messageType: 'TEXT' | 'IMAGE' | 'VOICE' | 'DOCUMENT' | 'VIDEO_NOTE';
     mediaUrl?: string | null;
     mediaKey?: string | null;
+    frameStyle?: string | null;
     replyToId?: string | null;
     status: 'SENT' | 'DELIVERED' | 'READ';
     createdAt: string;

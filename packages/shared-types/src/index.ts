@@ -66,10 +66,14 @@ export interface FetchPreKeyBundleResponse {
 export interface EncryptedPayload {
   ciphertext: string; // Base64
   iv: string; // Base64
-  ephemeralPublicKey: string; // Base64 DH ephemeral key
+  ephemeralPublicKey: string; // Base64 DH ephemeral key (Alice's Ratchet EK)
   ratchetSequence: number;
   previousChainLength: number;
   oneTimePreKeyIdUsed?: number;
+  // X3DH handshake fields — present only on the FIRST message of a new conversation
+  x3dhEphemeralPublicKey?: string; // Alice's X3DH Ephemeral Key (Base64) — Bob needs this for receiveX3DHSession()
+  senderIdentityPublicKey?: string; // Alice's IK public key (Base64) — Bob needs this for receiveX3DHSession()
+  isInitialMessage?: boolean;        // true on first message so Bob knows to run X3DH
 }
 
 export interface SendMessageRequest {

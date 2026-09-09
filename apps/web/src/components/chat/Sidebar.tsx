@@ -14,7 +14,7 @@ import {
   Inbox
 } from 'lucide-react';
 import { useAuthStore } from '../../store/useAuthStore';
-import { useChatStore } from '../../store/useChatStore';
+import { useChatStore, isUserOnline } from '../../store/useChatStore';
 import { firestoreDB } from '../../lib/firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { UserProfile } from '@chat/shared-types';
@@ -341,7 +341,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
                 ? `https://api.dicebear.com/7.x/bottts/svg?seed=blocked_user`
                 : otherParticipant?.avatarUrl || (otherParticipant?.phoneNumber ? `https://api.dicebear.com/7.x/bottts/svg?seed=${otherParticipant.phoneNumber}` : `https://api.dicebear.com/7.x/bottts/svg?seed=${conv.id}`);
 
-              const isOnline = !isBlocked && (presence?.status === 'ONLINE' || otherParticipant?.status === 'ONLINE');
+              const isOnline = !isBlocked && isUserOnline(presence);
               const isActive = activeConversationId === conv.id;
               const lastMsg = conv.lastMessage;
 

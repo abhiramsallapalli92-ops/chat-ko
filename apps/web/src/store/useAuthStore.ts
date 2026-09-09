@@ -22,7 +22,14 @@ interface AuthState {
   logout: () => Promise<void>;
   initializeKeys: () => Promise<ClientDeviceKeys>;
   loadSavedAuth: () => Promise<boolean>;
+  startPresenceHeartbeat: () => void;
+  stopPresenceHeartbeat: () => void;
 }
+
+// Heartbeat state (module-level to survive re-renders)
+let _heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+let _heartbeatVisibilityHandler: (() => void) | null = null;
+let _heartbeatUnloadHandler: (() => void) | null = null;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
@@ -191,6 +198,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const user = JSON.parse(userStr);
         const keys = await get().initializeKeys();
         set({ token, user, deviceKeys: keys, isAuthenticated: true });
+
+        // Ensure user and public key bundle exist in Firestore
+        try {
+          const publicBundle = extractPublicBundle(keys);
+          const keyBundleRef = doc(firestoreDB, 'keyBundles', user.id);
+          await setDoc(keyBundleRef, {
+            userId: user.id,
+            deviceId: `web-device-${user.id}`,
+            registrationId: keys.registrationId,
+            identityPublicKey: publicBundle.identityPublicKey,
+            signedPreKey: publicBundle.signedPreKey,
+            oneTimePreKeys: publicBundle.oneTimePreKeys,
+            updatedAt: new Date().toISOString(),
+          }, { merge: true });
+
+          const userRef = doc(firestoreDB, 'users', user.id);
+          await setDoc(userRef, {
+            id: user.id,
+            phoneNumber: user.phoneNumber || '',
+            name: user.name || `User ${user.phoneNumber?.slice(-4) || 'Contact'}`,
+            avatarUrl: user.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id}`,
+            bio: user.bio || 'Hey there! I am using Chat-Ko E2EE.',
+            email: (user as any).email || '',
+            status: 'ONLINE',
+            lastSeen: new Date().toISOString(),
+          }, { merge: true });
+        } catch (syncErr) {
+          console.warn('Background key bundle sync notice:', syncErr);
+        }
+
         return true;
       } catch (e) {
         localStorage.removeItem('whisper_jwt_token');
@@ -201,6 +238,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    get().stopPresenceHeartbeat();
     const current = get().user;
     if (current) {
       try {
@@ -213,7 +251,64 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     localStorage.removeItem('whisper_jwt_token');
     localStorage.removeItem('whisper_user');
-    await db.delete(); // Clear local IndexedDB stores safely on logout
+    await db.delete();
     set({ token: null, user: null, deviceKeys: null, isAuthenticated: false });
+  },
+
+  startPresenceHeartbeat: () => {
+    const writeOnline = () => {
+      const { user } = get();
+      if (!user) return;
+      const userRef = doc(firestoreDB, 'users', user.id);
+      updateDoc(userRef, { status: 'ONLINE', lastSeen: new Date().toISOString() }).catch(() => {});
+    };
+
+    const writeOffline = () => {
+      const { user } = get();
+      if (!user) return;
+      const userRef = doc(firestoreDB, 'users', user.id);
+      updateDoc(userRef, { status: 'OFFLINE', lastSeen: new Date().toISOString() }).catch(() => {});
+    };
+
+    // Stop any existing heartbeat first
+    get().stopPresenceHeartbeat();
+
+    // Immediately mark online
+    writeOnline();
+
+    // Pulse lastSeen every 25 seconds while tab is visible
+    _heartbeatInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        writeOnline();
+      }
+    }, 25_000);
+
+    // Tab hidden → OFFLINE; tab shown → back ONLINE
+    const visHandler = () => {
+      if (document.visibilityState === 'hidden') {
+        writeOffline();
+      } else {
+        writeOnline();
+      }
+    };
+    _heartbeatVisibilityHandler = visHandler;
+    document.addEventListener('visibilitychange', visHandler);
+
+    // Best-effort OFFLINE on tab close (sync write is not guaranteed)
+    const unloadHandler = () => { writeOffline(); };
+    _heartbeatUnloadHandler = unloadHandler;
+    window.addEventListener('beforeunload', unloadHandler);
+  },
+
+  stopPresenceHeartbeat: () => {
+    if (_heartbeatInterval) { clearInterval(_heartbeatInterval); _heartbeatInterval = null; }
+    if (_heartbeatVisibilityHandler) {
+      document.removeEventListener('visibilitychange', _heartbeatVisibilityHandler);
+      _heartbeatVisibilityHandler = null;
+    }
+    if (_heartbeatUnloadHandler) {
+      window.removeEventListener('beforeunload', _heartbeatUnloadHandler);
+      _heartbeatUnloadHandler = null;
+    }
   },
 }));

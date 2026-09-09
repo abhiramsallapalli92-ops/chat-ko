@@ -22,6 +22,7 @@ export interface LocalRatchetStateRecord {
 }
 
 export interface LocalMessageRecord extends MessageDTO {
+  text?: string;
   decryptedText?: string;
   isDecrypted?: boolean;
   isDeleted?: boolean;

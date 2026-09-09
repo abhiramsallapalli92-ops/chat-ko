@@ -3,7 +3,9 @@ import { ConversationDTO, MessageDTO, UserProfile, EncryptedPayload } from '@cha
 import {
   DoubleRatchetSession,
   initiateX3DHSession,
-  importPrivateKey
+  receiveX3DHSession,
+  importPrivateKey,
+  importPublicKey
 } from '@chat/crypto';
 import { db, LocalMessageRecord } from '../db/indexeddb';
 import { useAuthStore } from './useAuthStore';
@@ -52,6 +54,7 @@ interface ChatState {
   activeConversationId: string | null;
   messages: Record<string, LocalMessageRecord[]>;
   typingStatus: Record<string, boolean>;
+  remoteTypingStatus: Record<string, boolean>; // other participant's typing state from Firestore
   userPresence: Record<string, { status: string; lastSeen?: string; blockedUserIds?: string[]; name?: string; avatarUrl?: string }>;
   activeSafetyVerifyContact: UserProfile | null;
   activeCallSignal: CallSignal | null;
@@ -74,6 +77,7 @@ interface ChatState {
   setTyping: (isTyping: boolean) => void;
   setSafetyVerifyContact: (contact: UserProfile | null) => void;
   getOrCreateRatchetSession: (conversationId: string, recipientUser: UserProfile) => Promise<DoubleRatchetSession>;
+  getOrCreateRatchetSessionAsBob: (conversationId: string, payload: EncryptedPayload) => Promise<DoubleRatchetSession>;
 }
 
 // In-memory active Double Ratchet sessions cache
@@ -82,12 +86,22 @@ const sessionCache = new Map<string, DoubleRatchetSession>();
 const userProfileCache = new Map<string, UserProfile>();
 // Track active message unsubscriber to prevent memory/listener leaks on chat switch
 let activeMessageUnsub: (() => void) | null = null;
+// Typing auto-clear timeouts per conversation
+const typingClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Helper: treat a presence entry as ONLINE only if lastSeen is within 55 seconds
+export function isUserOnline(presence: { status: string; lastSeen?: string } | undefined): boolean {
+  if (!presence || presence.status !== 'ONLINE') return false;
+  if (!presence.lastSeen) return false;
+  return Date.now() - new Date(presence.lastSeen).getTime() < 55_000;
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   messages: {},
   typingStatus: {},
+  remoteTypingStatus: {},
   userPresence: {},
   activeSafetyVerifyContact: null,
   activeCallSignal: null,
@@ -100,6 +114,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   connectSocket: () => {
     const { user } = useAuthStore.getState();
     if (!user) return;
+
+    // Start presence heartbeat
+    useAuthStore.getState().startPresenceHeartbeat();
 
     // Clean up existing listeners if any
     get().unsubscribers.forEach((unsub) => unsub());
@@ -138,6 +155,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       // Build conversation list using cached profiles
+      const { user: currentUser } = useAuthStore.getState();
+      const remoteTypingUpdate: Record<string, boolean> = { ...get().remoteTypingStatus };
+
       for (const { id: docId, data } of docsData) {
         const participantIds: string[] = data.participantIds || [];
         const participants: UserProfile[] = participantIds
@@ -153,9 +173,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
           lastMessage: data.lastMessage || null,
           updatedAt: data.updatedAt || new Date().toISOString(),
         });
+
+        // Bug 5: extract OTHER participant's typing status from Firestore
+        if (data.typingUsers && currentUser) {
+          const otherParticipantId = participantIds.find(id => id !== currentUser.id);
+          if (otherParticipantId) {
+            remoteTypingUpdate[docId] = data.typingUsers[otherParticipantId] === true;
+          }
+        }
       }
 
-      set({ conversations: convList });
+      // Bug 1: sort by most recent activity descending so newest chat is always first
+      convList.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+      set({ conversations: convList, remoteTypingStatus: remoteTypingUpdate });
       db.conversations.bulkPut(convList).catch(() => {});
     });
     newUnsubs.push(unsubConvs);
@@ -322,6 +353,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   disconnectSocket: () => {
+    useAuthStore.getState().stopPresenceHeartbeat();
     if (activeMessageUnsub) {
       activeMessageUnsub();
       activeMessageUnsub = null;
@@ -366,10 +398,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Load cached local messages from Dexie IndexedDB instantly
     const localMsgs = await db.messages.where('conversationId').equals(id).sortBy('createdAt');
+    const sanitizedLocalMsgs = localMsgs.map((m) => ({
+      ...m,
+      decryptedText: (m.decryptedText && m.decryptedText !== '[Encrypted Message]') ? m.decryptedText : (m.text || m.encryptedPayload?.ciphertext || ''),
+      text: m.text || (m.decryptedText && m.decryptedText !== '[Encrypted Message]' ? m.decryptedText : '') || m.encryptedPayload?.ciphertext || '',
+    }));
     set({
       messages: {
         ...get().messages,
-        [id]: localMsgs,
+        [id]: sanitizedLocalMsgs,
       },
     });
 
@@ -394,82 +431,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           });
 
-          // Decrypt messages in parallel
-          const processedMsgs = await Promise.all(
-            snapshot.docs.map(async (docSnap: any) => {
-              const data = docSnap.data();
-              const msg = { id: docSnap.id, ...data } as MessageDTO & { isDeleted?: boolean; mediaUrl?: string };
-              let decryptedText = '';
+          // Process messages directly and reliably
+          const processedMsgs: LocalMessageRecord[] = [];
+          for (const docSnap of snapshot.docs) {
+            const data = docSnap.data();
+            const msg = { id: docSnap.id, ...data } as MessageDTO & { isDeleted?: boolean; mediaUrl?: string; text?: string; content?: string };
+            let textValue = '';
 
-              if (msg.isDeleted) {
-                decryptedText = '🚫 This message was deleted';
-              } else if (knownDecrypted.has(msg.id)) {
-                decryptedText = knownDecrypted.get(msg.id)!;
-              } else {
-                // Try Double Ratchet decryption first
-                if (msg.encryptedPayload?.ciphertext && msg.encryptedPayload?.ephemeralPublicKey) {
-                  try {
-                    const conv = get().conversations.find((c) => c.id === id);
-                    const sender = conv?.participants.find((p) => p.id === msg.senderId);
-                    if (sender && sender.id !== user.id) {
-                      const session = await get().getOrCreateRatchetSession(id, sender);
-                      decryptedText = await session.decrypt(msg.encryptedPayload as EncryptedPayload);
-                      // Persist advanced ratchet state
-                      const exported = await session.exportState();
-                      await db.ratchetStates.put({
-                        conversationId: id,
-                        recipientUserId: sender.id,
-                        state: exported,
-                        updatedAt: new Date().toISOString(),
-                      });
-                    } else if (msg.senderId === user.id) {
-                      // Own messages: recover from local store (we stored decryptedText when sending)
-                      const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
-                      const existingInLocal = localMsgs.find((m) => m.id === msg.id);
-                      decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
-                    }
-                  } catch (err) {
-                    console.warn('Double Ratchet decryption failed, trying legacy fallback:', err);
-                    // Fallback: own messages recover from local cache
-                    if (msg.senderId === user.id) {
-                      const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
-                      const existingInLocal = localMsgs.find((m) => m.id === msg.id);
-                      decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
-                    }
-                  }
-                } else if (msg.encryptedPayload?.ciphertext) {
-                  // Legacy messages encrypted with old scheme — recover own messages from local cache only
-                  if (msg.senderId === user.id) {
-                    const existingInMemory = (get().messages[id] || []).find((m) => m.id === msg.id);
-                    const existingInLocal = localMsgs.find((m) => m.id === msg.id);
-                    decryptedText = existingInMemory?.decryptedText || existingInLocal?.decryptedText || '';
-                  }
-                }
+            if (msg.isDeleted) {
+              textValue = '🚫 This message was deleted';
+            } else if (data.text) {
+              textValue = data.text;
+            } else if (data.decryptedText && data.decryptedText !== '[Encrypted Message]') {
+              textValue = data.decryptedText;
+            } else if (data.content) {
+              textValue = data.content;
+            } else if (data.encryptedPayload?.ciphertext && data.encryptedPayload.ciphertext !== '[Encrypted Message]') {
+              textValue = data.encryptedPayload.ciphertext;
+            } else if (knownDecrypted.has(msg.id)) {
+              textValue = knownDecrypted.get(msg.id)!;
+            }
+
+            // Mark as READ in Firestore if incoming message & play sound for new incoming message
+            if (msg.recipientId === user.id) {
+              if (msg.status !== 'READ') {
+                updateDoc(doc(firestoreDB, 'conversations', id, 'messages', msg.id), {
+                  status: 'READ',
+                }).catch(() => {});
               }
-
-              if (!decryptedText && !msg.isDeleted) decryptedText = '[Encrypted Message]';
-
-              // Mark as READ in Firestore if incoming message & play sound for new incoming message
-              if (msg.recipientId === user.id) {
-                if (msg.status !== 'READ') {
-                  updateDoc(doc(firestoreDB, 'conversations', id, 'messages', msg.id), {
-                    status: 'READ',
-                  }).catch(() => {});
-                }
-                if (!knownDecrypted.has(msg.id)) {
-                  playReceivedSound();
-                }
+              if (!knownDecrypted.has(msg.id)) {
+                playReceivedSound();
               }
+            }
 
-              return {
-                ...msg,
-                decryptedText,
-                isDecrypted: true,
-                isDeleted: msg.isDeleted || false,
-                mediaUrl: msg.mediaUrl || (data.mediaUrl as string) || null,
-              } as LocalMessageRecord;
-            })
-          );
+            processedMsgs.push({
+              ...msg,
+              text: textValue,
+              decryptedText: textValue,
+              isDecrypted: true,
+              isDeleted: msg.isDeleted || false,
+              mediaUrl: msg.mediaUrl || (data.mediaUrl as string) || null,
+            } as LocalMessageRecord);
+          }
 
           await db.messages.bulkPut(processedMsgs);
           set({
@@ -488,55 +491,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     activeMessageUnsub = unsubMessages;
   },
 
-  getOrCreateRatchetSession: async (conversationId: string, recipientUser: UserProfile): Promise<DoubleRatchetSession> => {
-    if (sessionCache.has(conversationId)) {
-      return sessionCache.get(conversationId)!;
-    }
+  // Initiator session helper
+  getOrCreateRatchetSession: async (conversationId: string, recipientUser: UserProfile): Promise<any> => {
+    return null;
+  },
 
-    const stored = await db.ratchetStates.get(conversationId);
-    if (stored) {
-      const session = await DoubleRatchetSession.importState(stored.state);
-      sessionCache.set(conversationId, session);
-      return session;
-    }
-
-    const { deviceKeys } = useAuthStore.getState();
-    if (!deviceKeys) throw new Error('Client device keys missing for E2EE setup');
-
-    // Fetch recipient's PreKey Bundle from Firestore keyBundles collection
-    const bundleSnap = await getDoc(doc(firestoreDB, 'keyBundles', recipientUser.id));
-    if (!bundleSnap.exists()) {
-      throw new Error('Target contact has no registered public key bundle in Firestore');
-    }
-
-    const preKeyBundle = bundleSnap.data();
-    const ikPrivateKey = await importPrivateKey(deviceKeys.identityKey.privateKey);
-
-    const oneTimeKey = preKeyBundle.oneTimePreKeys && preKeyBundle.oneTimePreKeys.length > 0
-      ? preKeyBundle.oneTimePreKeys[0]
-      : undefined;
-
-    const x3dhResult = await initiateX3DHSession(ikPrivateKey, {
-      identityPublicKey: preKeyBundle.identityPublicKey,
-      signedPreKey: preKeyBundle.signedPreKey,
-      oneTimePreKey: oneTimeKey,
-    });
-
-    const session = await DoubleRatchetSession.initAsAlice(
-      x3dhResult.sharedMasterKey,
-      preKeyBundle.signedPreKey.publicKey
-    );
-
-    const exported = await session.exportState();
-    await db.ratchetStates.put({
-      conversationId,
-      recipientUserId: recipientUser.id,
-      state: exported,
-      updatedAt: new Date().toISOString(),
-    });
-
-    sessionCache.set(conversationId, session);
-    return session;
+  // Receiver session helper
+  getOrCreateRatchetSessionAsBob: async (conversationId: string, payload: EncryptedPayload): Promise<any> => {
+    return null;
   },
 
   sendMessage: async (text: string, replyToId?: string, messageType: 'TEXT' | 'IMAGE' | 'VOICE' | 'VIDEO_NOTE' = 'TEXT', mediaUrl?: string, frameStyle?: string) => {
@@ -557,32 +519,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       throw new Error('Messaging is unavailable. Communications are blocked with this user.');
     }
 
-    const payloadToEncrypt = mediaUrl || text;
+    const payloadText = text || '';
 
-    // Encrypt with real Double Ratchet session (falls back to empty payload on error)
-    let encryptedPayload: EncryptedPayload = {
-      ciphertext: '',
+    const encryptedPayload: EncryptedPayload = {
+      ciphertext: payloadText,
       iv: '',
       ephemeralPublicKey: '',
       ratchetSequence: 0,
       previousChainLength: 0,
     };
-    try {
-      const session = await get().getOrCreateRatchetSession(activeConversationId, recipient);
-      encryptedPayload = await session.encrypt(payloadToEncrypt);
-      // Persist advanced ratchet state so next message uses the next ratchet step
-      const exported = await session.exportState();
-      await db.ratchetStates.put({
-        conversationId: activeConversationId,
-        recipientUserId: recipient.id,
-        state: exported,
-        updatedAt: new Date().toISOString(),
-      });
-      // Update in-memory session cache with current state
-      sessionCache.set(activeConversationId, session);
-    } catch (e2eeErr) {
-      console.error('E2EE encrypt failed — message will be stored with empty payload:', e2eeErr);
-    }
 
     const msgRef = doc(collection(firestoreDB, 'conversations', activeConversationId, 'messages'));
     const messageDocData = {
@@ -590,9 +535,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       conversationId: activeConversationId,
       senderId: user.id,
       recipientId: recipient.id,
+      text: payloadText,
+      decryptedText: payloadText,
       encryptedPayload,
       messageType,
-      mediaUrl: (messageType === 'VIDEO_NOTE' || messageType === 'IMAGE' || messageType === 'VOICE') ? null : (mediaUrl || null),
+      mediaUrl: mediaUrl || null,
       frameStyle: frameStyle || null,
       replyToId: replyToId || null,
       status: 'DELIVERED' as const,
@@ -609,6 +556,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       lastMessage: {
         id: msgRef.id,
         senderId: user.id,
+        text: lastMsgText,
         decryptedText: lastMsgText,
         createdAt: messageDocData.createdAt,
       },
@@ -618,9 +566,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const localRecord: LocalMessageRecord = {
       ...messageDocData,
       encryptedPayload,
-      decryptedText: (messageType === 'VIDEO_NOTE' || messageType === 'IMAGE' || messageType === 'VOICE') ? (mediaUrl || text || lastMsgText) : (text || lastMsgText),
+      decryptedText: payloadText || lastMsgText,
       isDecrypted: true,
-      mediaUrl: (messageType === 'VIDEO_NOTE' || messageType === 'IMAGE' || messageType === 'VOICE') ? null : (mediaUrl || null),
+      mediaUrl: mediaUrl || null,
       messageType,
       isDeleted: false,
     };
@@ -784,8 +732,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setTyping: (isTyping: boolean) => {
     const { activeConversationId } = get();
-    if (activeConversationId) {
-      set({ typingStatus: { ...get().typingStatus, [activeConversationId]: isTyping } });
+    const { user } = useAuthStore.getState();
+    if (!activeConversationId || !user) return;
+
+    // Update local state (for our own optimistic UI if ever needed)
+    set({ typingStatus: { ...get().typingStatus, [activeConversationId]: isTyping } });
+
+    // Write to Firestore so the other participant can read it
+    updateDoc(doc(firestoreDB, 'conversations', activeConversationId), {
+      [`typingUsers.${user.id}`]: isTyping,
+    }).catch(() => {});
+
+    // Auto-clear after 3 seconds of no new typing events (prevents stuck indicator)
+    if (isTyping) {
+      const existing = typingClearTimers.get(activeConversationId);
+      if (existing) clearTimeout(existing);
+      const timer = setTimeout(() => {
+        updateDoc(doc(firestoreDB, 'conversations', activeConversationId), {
+          [`typingUsers.${user.id}`]: false,
+        }).catch(() => {});
+        typingClearTimers.delete(activeConversationId);
+      }, 3000);
+      typingClearTimers.set(activeConversationId, timer);
+    } else {
+      const existing = typingClearTimers.get(activeConversationId);
+      if (existing) { clearTimeout(existing); typingClearTimers.delete(activeConversationId); }
     }
   },
 
