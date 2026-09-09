@@ -78,7 +78,7 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess }) => {
       phoneNumber: finalPhone,
       name: finalName,
       avatarUrl: finalAvatar,
-      bio: 'Hey there! I am using Chat-Ko E2EE.',
+      bio: 'Hey there! I am using Chat-Ko.',
       status: 'ONLINE' as const,
       createdAt: new Date().toISOString(),
     };
@@ -332,8 +332,8 @@ export const AuthFlow: React.FC<AuthFlowProps> = ({ onSuccess }) => {
             <Sparkles className="w-4 h-4 text-zinc-300" />
           </h1>
           <p className="text-xs text-zinc-300 font-semibold tracking-wide uppercase mt-1 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>End-to-End Encrypted Messenger</span>
+            <Sparkles className="w-3.5 h-3.5 text-[#4f8ef7]" />
+            <span>Ultra-Fast Real-Time Messenger</span>
           </p>
         </div>
 

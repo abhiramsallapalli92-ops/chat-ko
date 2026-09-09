@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Chat-Ko — Real-time End-to-End Encrypted Messenger',
-  description: 'Production-grade End-to-End Encrypted Messenger powered by Signal Protocol Double Ratchet & Cloud Firestore',
+  title: 'Chat-Ko — Ultra-Fast Real-Time Messenger',
+  description: 'Production-grade Real-Time Cloud Messenger powered by Cloud Firestore',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,

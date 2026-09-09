@@ -131,9 +131,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
           </div>
           <div>
             <h2 className="font-semibold text-sm text-[#f0f2f7] line-clamp-1">{user?.name}</h2>
-            <div className="flex items-center gap-1 text-[11px] text-[#8a8ea0] font-medium tracking-tight">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#4f8ef7]" />
-              <span>E2EE Active</span>
+            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium tracking-tight">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+              <span>Online</span>
             </div>
           </div>
         </div>
@@ -311,7 +311,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
               </div>
               <p className="text-sm font-semibold text-white mb-1">No conversations yet</p>
               <p className="text-xs max-w-xs mb-4 text-[#8E8E93] leading-relaxed">
-                Pull down to refresh or tap search above to start an encrypted chat.
+                Pull down to refresh or tap search above to start a conversation.
               </p>
               <button
                 onClick={() => setShowNewChatModal(true)}
@@ -382,10 +382,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
                       : isBlockedByMe
                       ? 'User blocked'
                       : lastMsg
-                      ? (lastMsg as any).decryptedText || '🔒 Encrypted message'
-                      : 'Tap to start encrypted chat'}
+                      ? (lastMsg as any).decryptedText || (lastMsg as any).text || 'Message'
+                      : 'Tap to start conversation'}
                   </p>
-                  <Lock className="w-3 h-3 text-[#4f8ef7] opacity-50 flex-shrink-0" />
                 </div>
               </div>
                 </div>

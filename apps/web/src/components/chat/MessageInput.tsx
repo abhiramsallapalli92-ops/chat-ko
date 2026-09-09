@@ -234,7 +234,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
           <img src={selectedImage} alt="Preview" className="w-16 h-16 rounded-xl object-cover border border-white/20" />
           <div className="flex-1">
             <p className="text-xs font-semibold text-white mb-1">Image attached</p>
-            <p className="text-[11px] text-[#8E8E93]">Ready to send with end-to-end encryption</p>
+            <p className="text-[11px] text-[#8E8E93]">Ready to send instantly</p>
           </div>
           <button
             onClick={() => setSelectedImage(null)}

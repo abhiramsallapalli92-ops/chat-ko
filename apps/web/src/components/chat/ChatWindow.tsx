@@ -1,16 +1,14 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
-  ShieldCheck,
+  Sparkles,
   Check,
   CheckCheck,
-  Lock,
   PhoneCall,
   Video,
   MoreVertical,
   ArrowLeft,
   ChevronLeft,
-  LockKeyhole,
   Trash2,
   Play,
   Pause,
@@ -304,17 +302,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
       <div className="flex-1 bg-transparent hidden md:flex flex-col items-center justify-center p-8 text-center relative overflow-hidden">
         <div className="glass-card border border-white/10 rounded-3xl p-8 max-w-md flex flex-col items-center shadow-2xl relative fade-scale-in">
           <div className="w-20 h-20 glass-surface border border-white/15 rounded-2xl flex items-center justify-center text-[#4f8ef7] mb-5 shadow-lg">
-            <LockKeyhole className="w-10 h-10" />
+            <Sparkles className="w-10 h-10 text-[#4f8ef7]" />
           </div>
           <h2 className="text-2xl font-light text-white mb-1 tracking-tight">
             Chat-Ko <span className="font-semibold text-[#4f8ef7]">Glass</span>
           </h2>
           <p className="text-xs text-[#8a8ea0] max-w-xs mb-5 leading-relaxed">
-            Select a conversation or search users to start real-time end-to-end encrypted messaging.
+            Select a conversation or search users to start real-time instant messaging.
           </p>
           <div className="flex items-center gap-2 text-[11px] text-[#8a8ea0] bg-white/5 px-4 py-2 rounded-full border border-white/10 font-mono">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#4f8ef7]" />
-            <span>X3DH + Double Ratchet • Zero-Knowledge</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Real-Time Cloud Messaging Active</span>
           </div>
         </div>
       </div>
@@ -443,17 +441,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
 
             {showMoreMenu && (
               <div className="absolute right-0 top-12 w-48 glass-panel border border-white/15 rounded-2xl shadow-2xl z-50 p-1 divide-y divide-white/10">
-                <button
-                  onClick={() => {
-                    setSafetyVerifyContact(otherUser);
-                    setShowMoreMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs text-zinc-300 hover:text-white hover:bg-white/10 rounded-xl flex items-center gap-2"
-                >
-                  <ShieldCheck className="w-4 h-4 text-zinc-300" />
-                  <span>Verify E2EE Safety Code</span>
-                </button>
-
                 {isBlocked ? (
                   <button
                     onClick={() => {
@@ -485,15 +472,13 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Security Info Banner */}
-      <div className="py-1.5 px-4 bg-white/[0.03] border-b border-white/[0.07] text-center text-[11px] text-[#8a8ea0] flex items-center justify-center gap-1.5">
-        <Lock className="w-3 h-3 flex-shrink-0 text-[#4f8ef7]" />
-        <span>
-          {whisperTimer > 0
-            ? `👻 Whisper Mode: Messages self-destruct after ${whisperTimer}s`
-            : 'Double Ratchet E2EE · Only you and this contact can read messages'}
-        </span>
-      </div>
+      {/* Whisper Mode Status Banner (if enabled) */}
+      {whisperTimer > 0 && (
+        <div className="py-1.5 px-4 bg-purple-500/15 border-b border-purple-500/30 text-center text-[11px] text-purple-200 flex items-center justify-center gap-1.5 font-medium animate-pulse">
+          <Ghost className="w-3.5 h-3.5 text-purple-300" />
+          <span>Whisper Mode: Messages self-destruct after {whisperTimer}s</span>
+        </div>
+      )}
 
       {/* Blocked Contact Warning Banner */}
       {isBlockedByMe ? (
@@ -606,13 +591,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({ onBack }) => {
                   <AudioPlayerBubble src={msg.mediaUrl || msg.decryptedText || ''} />
                 ) : (
                   <p className="text-sm whitespace-pre-wrap leading-relaxed break-words pr-12 font-normal">
-                    {msg.decryptedText && msg.decryptedText !== '[Encrypted Message]'
-                      ? msg.decryptedText
-                      : msg.text && msg.text !== '[Encrypted Message]'
-                      ? msg.text
-                      : msg.isDecrypted === false
-                      ? '⚠️ Unable to decrypt this message'
-                      : '🔒 Encrypted message'}
+                    {msg.text || msg.decryptedText || ''}
                   </p>
                 )}
 

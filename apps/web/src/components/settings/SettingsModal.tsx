@@ -144,23 +144,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
             </div>
           </form>
 
-          {/* Security & E2EE Info */}
-          <div className="space-y-3 pt-4 border-t border-white/10">
-            <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-              Encryption Protocol
-            </h3>
-            <div className="glass-card p-3 rounded-2xl border border-white/10 text-xs space-y-2">
-              <div className="flex justify-between items-center text-zinc-400">
-                <span>E2EE Key Registration ID</span>
-                <span className="font-mono text-white text-[11px]">{deviceKeys?.registrationId || 'Active'}</span>
-              </div>
-              <div className="flex justify-between items-center text-zinc-400">
-                <span>Encryption Engine</span>
-                <span className="text-[#4f8ef7] font-semibold text-[11px]">X3DH + Double Ratchet</span>
-              </div>
-            </div>
-          </div>
-
           {/* Sound & Notifications */}
           <div className="space-y-3 pt-4 border-t border-white/10">
             <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
@@ -194,7 +177,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
 
           {/* Actions */}
           <div className="pt-4 border-t border-white/10 flex justify-between items-center flex-wrap gap-2">
-            <span className="text-xs text-zinc-400">Chat-Ko PWA</span>
+            <span className="text-xs text-zinc-400">Chat-Ko Glass v2.0</span>
             <button
               onClick={() => {
                 logout();
@@ -203,7 +186,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors min-h-[44px]"
             >
               <LogOut className="w-4 h-4" />
-              <span>Log Out & Clear Keys</span>
+              <span>Log Out</span>
             </button>
           </div>
         </div>
